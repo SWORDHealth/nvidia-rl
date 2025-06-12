@@ -46,6 +46,7 @@ dependencies = [
     "matplotlib",
     "plotly",
     "mlflow",
+    "reasoning-gym>=0.1.22",
 ]
 
 [project.optional-dependencies]
