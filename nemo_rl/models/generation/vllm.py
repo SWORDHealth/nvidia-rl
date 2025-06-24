@@ -152,6 +152,10 @@ class VllmGenerationWorker:
         # Skip vllm P2P check and rely on driver to report peer to peer capability.
         env_vars["VLLM_SKIP_P2P_CHECK"] = "1"
 
+        # Need to give each DP group its own vllm cache to address:
+        # https://github.com/vllm-project/vllm/issues/18851
+        env_vars["VLLM_CACHE_ROOT"] = f"~/.cache/vllm_{seed}"
+
         return resources, env_vars, init_kwargs
 
     def __init__(
@@ -336,6 +340,16 @@ class VllmGenerationWorker:
             )
             vllm_kwargs["ray_workers_use_nsight"] = True
 
+        if use_fp8:
+            fp8_block_quant_cfg = {
+                "activation_scheme": "dynamic",
+                "fmt": "e4m3",
+                "quant_method": "fp8",
+                "weight_block_size": [128, 128]
+            }
+            vllm_kwargs["quantization"] = "fp8"
+            vllm_kwargs["hf_overrides"] = {"quantization_config": fp8_block_quant_cfg}
+
         llm_kwargs = dict(
             model=self.model_name,
             load_format=load_format,
@@ -358,13 +372,31 @@ class VllmGenerationWorker:
             **vllm_kwargs,
         )
 
-        if self.cfg["vllm_cfg"]["async_engine"]:
-            from vllm.engine.arg_utils import AsyncEngineArgs
-            from vllm.v1.engine.async_llm import AsyncLLM
+        from unittest.mock import patch
+        from nemo_rl.models.generation.fp8 import (
+            process_weights_after_loading,
+            per_token_group_quant_fp8,
+            _per_token_group_quant_fp8, 
+            _per_token_group_quant_fp8_colmajor,
+        )
 
-            self.llm = AsyncLLM.from_engine_args(AsyncEngineArgs(**llm_kwargs))
-        else:
-            self.llm = vllm.LLM(**llm_kwargs)
+        func1 = 'vllm.model_executor.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading'
+        func2 = 'vllm.model_executor.layers.quantization.utils.fp8_utils.per_token_group_quant_fp8'
+        func3 = 'vllm.model_executor.layers.quantization.utils.fp8_utils._per_token_group_quant_fp8'
+        func4 = 'vllm.model_executor.layers.quantization.utils.fp8_utils._per_token_group_quant_fp8_colmajor'
+
+        with patch(func1, process_weights_after_loading), \
+            patch(func2, per_token_group_quant_fp8), \
+            patch(func3, _per_token_group_quant_fp8), \
+            patch(func4, _per_token_group_quant_fp8_colmajor):
+            
+            if self.cfg["vllm_cfg"]["async_engine"]:
+                from vllm.engine.arg_utils import AsyncEngineArgs
+                from vllm.v1.engine.async_llm import AsyncLLM
+
+                self.llm = AsyncLLM.from_engine_args(AsyncEngineArgs(**llm_kwargs))
+            else:
+                self.llm = vllm.LLM(**llm_kwargs)
 
         # will be initialized in post_init
         # used in update_weights_from_ipc_handles
