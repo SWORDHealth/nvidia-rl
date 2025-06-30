@@ -72,12 +72,9 @@ _patch_gemma3_mm()
 
 
 class VllmInternalWorkerExtension:
-    def init_collective(
-        self, rank_prefix: int, ip: str, port: int, world_size: int
-    ) -> None:
+    def init_collective(self, rank_prefix: int, world_size: int) -> None:
         """Initialize the collective communication."""
-        from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
-        from vllm.distributed.utils import StatelessProcessGroup
+        import ray.util.collective as collective
 
         local_rank = torch.distributed.get_rank()
         rank = rank_prefix + local_rank + 1  # 1 is the head node of the train cluster
@@ -86,11 +83,8 @@ class VllmInternalWorkerExtension:
         # https://github.com/NVIDIA-NeMo/RL/issues/564. This can be removed after it is upgraded to vllm>=0.9.1rc1.
         os.environ["NCCL_CUMEM_ENABLE"] = "1"
 
-        pg = StatelessProcessGroup.create(
-            host=ip, port=port, rank=rank, world_size=world_size
-        )
-        self.model_update_group = PyNcclCommunicator(  # pyrefly: ignore[implicitly-defined-attribute]  This class does not define __init__ so assignments like this should be ignored
-            pg, device=self.device
+        collective.init_collective_group(
+            world_size=world_size, rank=rank, backend="nccl", group_name="refit"
         )
 
     def report_device_id(self) -> str:
@@ -204,6 +198,8 @@ class VllmInternalWorkerExtension:
 
     def update_weights_from_collective(self) -> bool:
         """Update the model weights from collective communication."""
+        import ray.util.collective as collective
+
         assert self.state_dict_info is not None, (
             "state_dict_info is not prepared. "
             "Please call prepare_refit_info when initializing the worker."
@@ -212,7 +208,7 @@ class VllmInternalWorkerExtension:
         try:
             for name, (shape, dtype) in self.state_dict_info.items():
                 weight = torch.empty(shape, dtype=dtype, device="cuda")
-                self.model_update_group.broadcast(weight, src=0)
+                collective.broadcast(weight, 0, group_name="refit")
                 self.model_runner.model.load_weights(weights=[(name, weight)])
         except Exception as e:
             print(

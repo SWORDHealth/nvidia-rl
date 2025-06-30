@@ -359,28 +359,20 @@ class VllmGenerationWorker:
     async def post_init_async(self):
         self.vllm_device_ids = await self.report_device_id_async()
 
-    def init_collective(
-        self, rank_prefix: int, ip: str, port: int, world_size: int
-    ) -> None:
+    def init_collective(self, rank_prefix: int, world_size: int) -> None:
         self.llm.collective_rpc(
             "init_collective",
             args=(
                 rank_prefix,
-                ip,
-                port,
                 world_size,
             ),
         )
 
-    async def init_collective_async(
-        self, rank_prefix: int, ip: str, port: int, world_size: int
-    ) -> None:
+    async def init_collective_async(self, rank_prefix: int, world_size: int) -> None:
         await self.llm.collective_rpc(
             "init_collective",
             args=(
                 rank_prefix,
-                ip,
-                port,
                 world_size,
             ),
         )
@@ -1560,9 +1552,7 @@ class VllmGeneration(GenerationInterface):
         results = ray.get(futures)
         return results
 
-    def init_collective(
-        self, ip: str, port: int, world_size: int
-    ) -> list[ray.ObjectRef]:
+    def init_collective(self, world_size: int) -> list[ray.ObjectRef]:
         """Initialize the collective communication."""
         if not self.worker_group or not self.worker_group.workers:
             raise RuntimeError("Worker group is not initialized")
@@ -1588,7 +1578,7 @@ class VllmGeneration(GenerationInterface):
             method_name,
             rank_prefix=rank_prefix_list,
             run_rank_0_only_axes=["tensor_parallel", "pipeline_parallel"],
-            common_kwargs={"ip": ip, "port": port, "world_size": world_size},
+            common_kwargs={"world_size": world_size},
         )
 
         # this function should co-work with lm_policy, so we should wait for all futures to complete outside
