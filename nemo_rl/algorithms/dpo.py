@@ -281,16 +281,22 @@ def validate(
     val_mbs: int,
     logger: Logger,
 ):
+    val_metrics, validation_timings = {}, {}
     for k, v in val_dataloader.items():
-        k_val_metrics, k_validation_timings = validate_one_dataset(policy, v, tokenizer, loss_fn, step, master_config, val_batches, val_batch_size, val_mbs, logger)
+        k_val_metrics, k_validation_timings = validate_one_dataset(policy, v, tokenizer, loss_fn, step, master_config, val_batches, val_batch_size, val_mbs, k)
         if k == "validation":
-            prefix = "validation"
+            prefix = "val"
         else:
-            prefix = f"validation-{k}"
+            prefix = f"{k}-val"
 
         logger.log_metrics(k_val_metrics, step, prefix=prefix)
         logger.log_metrics(k_validation_timings, step, prefix=f"timing/{prefix}")
-    return None, None
+
+        val_metrics[prefix+"_loss"] = k_val_metrics["val_loss"]
+        val_metrics[prefix+"_accuracy"] = k_val_metrics["accuracy"]
+        validation_timings[prefix+"_total_validation_time"] = k_validation_timings["total_validation_time"]
+
+    return val_metrics, validation_timings
 
 
 def validate_one_dataset(
@@ -303,7 +309,7 @@ def validate_one_dataset(
     val_batches: int,
     val_batch_size: int,
     val_mbs: int,
-    logger: Logger,
+    dataset_name: str,
 ):
     """Run validation on the validation dataset."""
     if val_dataloader is None:
@@ -366,12 +372,12 @@ def validate_one_dataset(
 
     else:
         # Print summary of validation results
-        print("\n📊 Validation Results:")
+        print(f"\n📊 Validation Results for `{dataset_name}` set:")
         print(f"    • Validation loss: {float(val_metrics['loss']):.4f}")
         print(f"    • Validation accuracy: {float(val_metrics['accuracy']):.4f}")
 
         # Print timing information
-        print("\n  ⏱️  Validation Timing:")
+        print(f"\n  ⏱️  Validation Timing for `{dataset_name}` set:")
         validation_time = timing_metrics.get("total_validation_time", 0)
         print(f"    • Total validation time: {validation_time:.2f}s")
 
@@ -497,7 +503,7 @@ def dpo_train(
                     dpo_save_state["total_steps"] = total_steps + 1
                     dpo_save_state["epoch"] = current_epoch
                     if val_metrics is not None:
-                        dpo_save_state["val_loss"] = val_metrics["loss"]
+                        dpo_save_state.update(val_metrics)
                     elif "val_loss" in dpo_save_state:
                         del dpo_save_state["val_loss"]
 
