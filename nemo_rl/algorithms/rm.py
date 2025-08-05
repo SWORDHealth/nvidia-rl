@@ -16,6 +16,7 @@ import os
 import warnings
 from pathlib import Path
 from typing import Optional, TypedDict
+from functools import partial
 
 import numpy as np
 import torch
@@ -32,11 +33,6 @@ from nemo_rl.data.datasets import (
     preference_collate_fn,
 )
 from nemo_rl.data.interfaces import TaskDataSpec
-from nemo_rl.data.llm_message_utils import (
-    add_loss_mask_to_message_log,
-    batched_message_log_to_flat_message,
-)
-from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.distributed.virtual_cluster import ClusterConfig, RayVirtualCluster
 from nemo_rl.models.policy import PolicyConfig
 from nemo_rl.models.policy.interfaces import PolicyInterface
@@ -147,7 +143,13 @@ def setup(
         train_dataset,
         batch_size=policy_config["train_global_batch_size"],
         shuffle=True,
-        collate_fn=preference_collate_fn,
+        collate_fn=partial(
+            preference_collate_fn,
+            tokenizer=tokenizer,
+            make_sequence_length_divisible_by=policy_config[
+                "make_sequence_length_divisible_by"
+            ],
+        ),
         drop_last=True,
     )
 
@@ -165,7 +167,13 @@ def setup(
             v,
             batch_size=rm_config["val_global_batch_size"],
             shuffle=False,
-            collate_fn=preference_collate_fn,
+            collate_fn=partial(
+                preference_collate_fn,
+                tokenizer=tokenizer,
+                make_sequence_length_divisible_by=policy_config[
+                    "make_sequence_length_divisible_by"
+                ],
+            ),
             drop_last=True,
         ) for k, v in val_dataset.items()
     }
@@ -279,32 +287,9 @@ def validate_one_dataset(
 
         policy.prepare_for_training()
         for batch_idx, val_batch in enumerate(val_dataloader):
-            ## add loss mask based on role to every message
-            add_loss_mask_to_message_log(
-                val_batch["message_log"],
-                roles_to_train_on=["assistant"],
-            )
-
-            cat_and_padded, input_lengths = batched_message_log_to_flat_message(
-                val_batch["message_log"],
-                pad_value_dict={"token_ids": tokenizer.pad_token_id},
-                make_sequence_length_divisible_by=master_config["policy"][
-                    "make_sequence_length_divisible_by"
-                ],
-            )
-
-            val_data: BatchedDataDict = BatchedDataDict(
-                {
-                    "input_ids": cat_and_padded["token_ids"],
-                    "input_lengths": input_lengths,
-                    "token_mask": cat_and_padded["token_loss_mask"],
-                    "sample_mask": val_batch["loss_multiplier"],
-                }
-            )
-
             ## just run model fwd
             val_results = policy.train(
-                val_data,
+                val_batch,
                 loss_fn,
                 eval_mode=True,
                 ## NOTE: we double the batch size here because each preference example corresponds to a pair of
@@ -455,35 +440,10 @@ def rm_train(
 
             with timer.time("total_step_time"):
                 # Prepare batch and generate responses
-                print("▶ Preparing batch...")
-                with timer.time("data_processing"):
-                    ## add loss mask based on role to every message
-                    add_loss_mask_to_message_log(
-                        batch["message_log"],
-                        roles_to_train_on=["assistant"],
-                    )
-
-                    cat_and_padded, input_lengths = batched_message_log_to_flat_message(
-                        batch["message_log"],
-                        pad_value_dict={"token_ids": tokenizer.pad_token_id},
-                        make_sequence_length_divisible_by=master_config["policy"][
-                            "make_sequence_length_divisible_by"
-                        ],
-                    )
-
-                    train_data: BatchedDataDict = BatchedDataDict(
-                        {
-                            "input_ids": cat_and_padded["token_ids"],
-                            "input_lengths": input_lengths,
-                            "token_mask": cat_and_padded["token_loss_mask"],
-                            "sample_mask": batch["loss_multiplier"],
-                        }
-                    )
-
                 print("▶ Taking a training step...")
 
                 train_results = policy.train(
-                    train_data,
+                    batch,
                     loss_fn,
                     eval_mode=False,
                     ## NOTE: we double the batch size here because each preference example corresponds to a pair of

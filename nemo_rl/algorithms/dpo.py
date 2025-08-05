@@ -38,12 +38,6 @@ from nemo_rl.utils.logger import Logger, LoggerConfig
 from nemo_rl.utils.nsys import maybe_gpu_profile_step
 from nemo_rl.utils.timer import Timer
 
-from nemo_rl.data.llm_message_utils import (
-    add_loss_mask_to_message_log,
-    batched_message_log_to_flat_message,
-)
-from nemo_rl.distributed.batched_data_dict import BatchedDataDict
-
 
 class DPOSaveState(TypedDict):
     epoch: int  # Track current epoch
@@ -159,7 +153,13 @@ def setup(
         train_dataset,
         batch_size=policy_config["train_global_batch_size"],
         shuffle=True,
-        collate_fn=preference_collate_fn,
+        collate_fn=partial(
+            preference_collate_fn,
+            tokenizer=tokenizer,
+            make_sequence_length_divisible_by=policy_config[
+                "make_sequence_length_divisible_by"
+            ],
+        ),
         drop_last=True,
     )
 
@@ -177,7 +177,13 @@ def setup(
             v,
             batch_size=dpo_config["val_global_batch_size"],
             shuffle=False,
-            collate_fn=preference_collate_fn,
+            collate_fn=partial(
+                preference_collate_fn,
+                tokenizer=tokenizer,
+                make_sequence_length_divisible_by=policy_config[
+                    "make_sequence_length_divisible_by"
+                ],
+            ),
             drop_last=True,
         ) for k, v in val_dataset.items()
     }
@@ -238,27 +244,6 @@ def add_ref_logprobs_to_data(dataloader, policy, master_config, tokenizer, is_va
     while True:
         try:
             batch = next(dataloader_iter)
-
-            ## add loss mask based on role to every message
-            add_loss_mask_to_message_log(
-                batch["message_log"],
-                only_unmask_final=True,
-            )
-
-            cat_and_padded, input_lengths = batched_message_log_to_flat_message(
-                batch["message_log"],
-                pad_value_dict={"token_ids": tokenizer.pad_token_id},
-                make_sequence_length_divisible_by=master_config["policy"]["make_sequence_length_divisible_by"],
-            )
-
-            batch = BatchedDataDict(
-                {
-                    "input_ids": cat_and_padded["token_ids"],
-                    "input_lengths": input_lengths,
-                    "token_mask": cat_and_padded["token_loss_mask"],
-                    "sample_mask": batch["loss_multiplier"],
-                }
-            )
 
             micro_batch_size = (
                 master_config["dpo"]["val_micro_batch_size"] * 2
