@@ -77,8 +77,6 @@ from nemo_rl.models.policy.utils import (
     import_class_from_path,
     is_vllm_v1_engine_enabled,
     sliding_window_overwrite,
-    freeze_hf_model_by_regex,
-    freeze_hf_model_towers
 )
 from nemo_rl.utils.native_checkpoint import (
     load_checkpoint,
@@ -256,7 +254,7 @@ class DTensorPolicyWorker:
                 raise ValueError(f"Unknown reward model type: {rm_type}")
         else:
             # DO NOT assume AutoModelForCausalLM, multimodal models can inherit from AutoModelForImageTextToText, AutoModelForTextToWaveform, etc.
-            model_class = resolve_model_class(model_name)
+            model_class = resolve_model_class(model_config.model_type)
 
         full_state_dict = None
         if self.rank == 0:
@@ -277,10 +275,6 @@ class DTensorPolicyWorker:
             self.model = model_class.from_config(
                 model_config,
             )
-
-        # freeze parameters by provided regex
-        freeze_hf_model_towers(self.model, self.cfg.get("freeze_language_model", False), self.cfg.get("freeze_vision_model", False))
-        freeze_hf_model_by_regex(self.model, self.cfg.get("freeze_param_regex", None))
 
         if self.model.config.pad_token_id is None:
             self.model.config.pad_token_id = tokenizer.pad_token_id
@@ -695,16 +689,12 @@ class DTensorPolicyWorker:
 
                         # add vlm kwargs to model call
                         vlm_kwargs = mb.get_multimodal_dict(as_tensors=True, device=input_ids.device)
-                        flash_attn_kwargs_wrap = {}
-                        # set flash_attn_kwargs if there are no multimodal kwargs
-                        if len(vlm_kwargs) == 0:
-                            flash_attn_kwargs_wrap['flash_attn_kwargs'] = flash_attn_kwargs
-                        else:
+                        if len(vlm_kwargs) > 0:
                             position_ids = None
 
                     context_parallel_ctx = None
                     if self.cp_size > 1:
-                        assert len(vlm_kwargs) == 0, "multimodal kwargs are not supported for context parallel"
+                        assert len(vlm_kwargs) == 0, f"multimodal kwargs={vlm_kwargs} are not supported for context parallel"
                         seq_index = torch.arange(
                             seq_len, device=input_ids.device
                         ).repeat(1, 1)

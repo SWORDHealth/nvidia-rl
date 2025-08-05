@@ -1,7 +1,7 @@
 # GRPO Algorithm Configuration
-# inherit from grpo_clevr_cogent_trainA.yaml
+# inherit from grpo-qwen2.5-vl-3b-instruct-clevr-1n2g-dtensor2tp1.v1.yaml
 defaults:
-  - grpo_clevr_cogent_trainA.yaml
+  - grpo-qwen2.5-vl-3b-instruct-clevr-1n2g-dtensor2tp1.v1.yaml
 
 checkpointing:
   enabled: true

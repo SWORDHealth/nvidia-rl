@@ -141,9 +141,8 @@ def save_checkpoint(
     optimizer: Optional[torch.optim.Optimizer] = None,
     scheduler: Optional[Any] = None,
     optimizer_path: Optional[str] = None,
-    tokenizer: Optional[Any] = None,
-    tokenizer_path: Optional[str] = None,
-    processor: Optional[AutoProcessor] = None,
+    tokenizer_or_processor: Optional[Any] = None,
+    tokenizer_or_processor_path: Optional[str] = None,
 ) -> None:
     """Save a checkpoint of the model and optionally optimizer state.
 
@@ -168,18 +167,13 @@ def save_checkpoint(
         optimizer_state = {"optim": OptimizerState(model, optimizer, scheduler)}
         dcp.save(optimizer_state, checkpoint_id=optimizer_path)
 
-    if tokenizer is not None:
-        if tokenizer_path is None:
+    if tokenizer_or_processor is not None:
+        if tokenizer_or_processor_path is None:
             raise ValueError(
                 "tokenizer_path must be provided when saving tokenizer state"
             )
-
-        if processor is not None:
-            print(f"Saving processor to {tokenizer_path}")
-            processor.save_pretrained(tokenizer_path)
-        else:
-            print(f"Saving tokenizer to {tokenizer_path}")
-            tokenizer.save_pretrained(tokenizer_path)
+        print(f"Saving processor or tokenizer to {tokenizer_or_processor_path}")
+        tokenizer_or_processor.save_pretrained(tokenizer_or_processor_path)
 
 
 def load_checkpoint(

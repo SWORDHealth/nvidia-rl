@@ -51,6 +51,7 @@ from nemo_rl.data.multimodal_utils import PackedMultimodalDataItem, \
     get_multimodal_keys_from_processor,  \
     reroute_processor_model_name_patch, \
     get_dim_to_pack_along
+from nemo_rl.algorithms.utils import get_tokenizer
 
 OmegaConf.register_new_resolver("mul", lambda a, b: a * b)
 
@@ -300,7 +301,7 @@ def main() -> None:
 
     if not args.config:
         args.config = os.path.join(
-            os.path.dirname(__file__), "configs", "grpo_clevr_cogent_trainA.yaml"
+            os.path.dirname(__file__), "configs", "grpo_vlm_3B.yaml"
         )
 
     config = load_config(args.config)
@@ -327,17 +328,10 @@ def main() -> None:
 
     init_ray()
 
-    # setup tokenizer
-    processor = AutoProcessor.from_pretrained(reroute_processor_model_name_patch(config["policy"]["model_name"]), trust_remote_code=True)
+    # init processor
+    config["policy"]["tokenizer"]["name"] = reroute_processor_model_name_patch(config['policy']['tokenizer']['name'])
+    processor = get_tokenizer(config["policy"]["tokenizer"])
     tokenizer = processor.tokenizer
-    # inherit tokenizer's special tokens
-    processor.pad_token = processor.tokenizer.pad_token
-    processor.eos_token = processor.tokenizer.eos_token
-    processor.bos_token = processor.tokenizer.bos_token
-    processor.pad_token_id = processor.tokenizer.pad_token_id
-    processor.eos_token_id = processor.tokenizer.eos_token_id
-    processor.bos_token_id = processor.tokenizer.bos_token_id
-
 
     assert config["policy"]["generation"] is not None, (
         "A generation config is required for GRPO"

@@ -334,6 +334,7 @@ def assert_start_with_single_bos(
                 f"Expected non-BOS token at the second position of the message, but got {token_ids_list[1]}"
             )
     else:
+        # `name_or_path` is not available for AutoProcessor, temp fix in get_tokenizer
         print(
             f"skip assert_start_single_bos since Tokenizer {tokenizer.name_or_path} has no BOS token"
         )

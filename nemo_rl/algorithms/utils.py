@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import random
+import token
 import warnings
 from functools import wraps
 from typing import Optional
@@ -229,5 +230,16 @@ def get_tokenizer(tokenizer_config: TokenizerConfig, ) -> PreTrainedTokenizerBas
             tokenizer.chat_template = tokenizer_config["chat_template"]
     else:
         print("No chat template provided, using tokenizer's default")
+    
+    # inherit pad and eos tokens from the tokenizer
+    if processor is not None:
+        processor.pad_token = tokenizer.pad_token
+        processor.eos_token = tokenizer.eos_token
+        processor.bos_token = tokenizer.bos_token
+        processor.pad_token_id = tokenizer.pad_token_id
+        processor.eos_token_id = tokenizer.eos_token_id
+        processor.bos_token_id = tokenizer.bos_token_id
+        # copy name_or_path from tokenizer to processor for logging
+        processor.name_or_path = tokenizer.name_or_path
 
     return tokenizer if processor is None else processor

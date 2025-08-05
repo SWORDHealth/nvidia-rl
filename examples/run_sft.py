@@ -213,15 +213,6 @@ def main():
     # However, the dataloader needs the processor for multimodal data preprocessing, so the processor is needed for the dataloader (only tokenizer is NOT enough).
     # Inheriting special keys from the tokenizer is a minimal change that doesn't disturb the rest of the SFT pipeline 
     tokenizer = get_tokenizer(config["policy"]["tokenizer"])
-    if not isinstance(tokenizer, PreTrainedTokenizerBase):
-        # inherit pad and eos tokens from the tokenizer
-        tokenizer.pad_token = tokenizer.tokenizer.pad_token
-        tokenizer.eos_token = tokenizer.tokenizer.eos_token
-        tokenizer.bos_token = tokenizer.tokenizer.bos_token
-        tokenizer.pad_token_id = tokenizer.tokenizer.pad_token_id
-        tokenizer.eos_token_id = tokenizer.tokenizer.eos_token_id
-        tokenizer.bos_token_id = tokenizer.tokenizer.bos_token_id
-    
     # setup data
     (
         dataset,

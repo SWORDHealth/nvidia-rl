@@ -46,9 +46,8 @@ dependencies = [
     "matplotlib",
     "plotly",
     "sympy>=1.14.0",
-    "pillow>=11.2.1",
+    "pillow>=11.3.0",
     "torchvision>=0.22.0",
-    "ipython>=9.4.0",
     "num2words>=0.5.14",   # for SmolVLM
     "mlflow",
 ]
