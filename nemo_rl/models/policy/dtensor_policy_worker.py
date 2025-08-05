@@ -1441,7 +1441,6 @@ class DTensorPolicyWorker:
             optimizer_path=optimizer_path,
             # tokenizer and processor
             tokenizer=self.tokenizer if tokenizer_path else None,
-            processor=self.processor if tokenizer_path else None,
             tokenizer_path=tokenizer_path,
         )
 

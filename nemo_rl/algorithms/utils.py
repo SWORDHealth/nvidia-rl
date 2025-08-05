@@ -205,9 +205,7 @@ def get_tokenizer(tokenizer_config: TokenizerConfig, ) -> PreTrainedTokenizerBas
     is_tokenizer_processor = tokenizer_config.get("is_tokenizer_processor", False)
 
     if is_tokenizer_processor:
-        processor = AutoProcessor.from_pretrained(
-            tokenizer_config["name"], trust_remote_code=True
-        )
+        processor = AutoProcessor.from_pretrained(tokenizer_config["name"], trust_remote_code=True, use_fast=True)
         tokenizer = processor.tokenizer
     else:
         tokenizer = AutoTokenizer.from_pretrained(
