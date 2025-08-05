@@ -1368,8 +1368,12 @@ class VllmGeneration(GenerationInterface):
         cluster._init_placement_groups(use_unified_pg=needs_cross_node_parallelism)
 
         # Create worker builder for VllmGenerationWorker
+        # worker_builder = RayWorkerBuilder(
+        #     "nemo_rl.models.generation.vllm.VllmGenerationWorker", config
+        # )
+        # Temporary for trtllm test
         worker_builder = RayWorkerBuilder(
-            "nemo_rl.models.generation.vllm.VllmGenerationWorker", config
+            "nemo_rl.models.generation.trtllm.worker.TRTLLMGenerationWorker", config
         )
 
         # It's necessary to set env_vars here to ensure that vllm non-leader workers also have these env_vars

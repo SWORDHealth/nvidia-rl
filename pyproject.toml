@@ -16,7 +16,7 @@ dynamic = [
     "readme",
 ]
 description = "NeMo RL: A Scalable and Efficient Post-Training Library for Models Ranging from 1 GPU to 1000s, and from Tiny to >100B Parameters"
-requires-python = ">=3.12"
+requires-python = "==3.12.3"
 license = {text = "Apache 2.0"}
 dependencies = [
     "setuptools",
@@ -24,7 +24,7 @@ dependencies = [
     "torch==2.7.0",
     "triton",
     "colored==2.2.3",
-    "ray[default]==2.46.0",
+    "ray[default]==2.48.0",
     # vllm<0.10.0 and transformers>=4.54.0 has a conflict
     # Remove this once we upgrade vllm to >=0.10.0
     "transformers>=4.51.0,<4.54.0",
