@@ -1565,13 +1565,11 @@ class VllmGeneration(GenerationInterface):
         )
 
         # Prepare rank
-        total_workers = len(self.worker_group.workers)
         if self.dp_size == 0:
             raise RuntimeError(
                 "Data parallel size is zero, cannot initialize collective."
             )
-        workers_per_group = total_workers // self.dp_size
-        rank_prefix_list = list(range(0, total_workers, workers_per_group))
+        rank_prefix_list = list(range(0, self.dp_size))
 
         # Send world_size and rank for init collective to all workers
         futures = self.worker_group.run_all_workers_multiple_data(

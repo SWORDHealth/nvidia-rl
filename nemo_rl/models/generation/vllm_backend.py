@@ -76,16 +76,17 @@ class VllmInternalWorkerExtension:
         """Initialize the collective communication."""
         import ray.util.collective as collective
 
-        local_rank = torch.distributed.get_rank()
-        rank = rank_prefix + local_rank + 1  # 1 is the head node of the train cluster
+        self.local_rank = torch.distributed.get_rank()  # pyrefly: ignore[implicitly-defined-attribute]  This class does not define __init__ so assignments like this should be ignored
 
         # Temporary fix for vllm==0.9.0 which overrides the NCCL_CUMEM_ENABLE to 0 and causes
         # https://github.com/NVIDIA-NeMo/RL/issues/564. This can be removed after it is upgraded to vllm>=0.9.1rc1.
         os.environ["NCCL_CUMEM_ENABLE"] = "1"
 
-        collective.init_collective_group(
-            world_size=world_size, rank=rank, backend="nccl", group_name="refit"
-        )
+        if self.local_rank == 0:
+            rank = rank_prefix + 1  # 1 is the head node of the train cluster
+            collective.init_collective_group(
+                world_size=world_size, rank=rank, backend="nccl", group_name="refit"
+            )
 
     def report_device_id(self) -> str:
         from nemo_rl.utils.nvml import get_device_uuid
@@ -208,7 +209,9 @@ class VllmInternalWorkerExtension:
         try:
             for name, (shape, dtype) in self.state_dict_info.items():
                 weight = torch.empty(shape, dtype=dtype, device="cuda")
-                collective.broadcast(weight, 0, group_name="refit")
+                if self.local_rank == 0:
+                    collective.broadcast(weight, 0, group_name="refit")
+                torch.distributed.broadcast(weight, src=0)
                 self.model_runner.model.load_weights(weights=[(name, weight)])
         except Exception as e:
             print(

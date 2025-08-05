@@ -341,7 +341,12 @@ def setup(
     # if it is not colocated inference, initialize collective communication for update weights
     if not colocated_inference:
         # inference cluster + head node of the train cluster
-        world_size = inference_nodes * inference_gpus_per_node + 1
+        inference_workers = inference_nodes * inference_gpus_per_node
+        inference_model_parallel = (
+            generation_config["vllm_cfg"]["tensor_parallel_size"]
+            * generation_config["vllm_cfg"]["pipeline_parallel_size"]
+        )
+        world_size = inference_workers / inference_model_parallel + 1
         # init collective
         futures_train = policy.init_collective(world_size)
         futures_inference = policy_generation.init_collective(world_size)  # type: ignore

@@ -1283,8 +1283,8 @@ class DTensorPolicyWorker:
         for _, tensor in self.model.state_dict().items():
             if isinstance(tensor, DTensor):
                 tensor = tensor.full_tensor()
-            tensor = tensor.to(self.dtype, non_blocking=True)
             if self.rank == 0:
+                tensor = tensor.to(self.dtype, non_blocking=True)
                 collective.broadcast(tensor.data, 0, group_name="refit")
 
     def prepare_for_lp_inference(self) -> None:
