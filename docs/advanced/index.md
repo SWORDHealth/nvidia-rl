@@ -84,10 +84,8 @@ Adapt GRPO for new domains and use cases.
 
 ## Advanced Training Techniques
 
-::::{grid} 3
+::::{grid} 2
 :gutter: 2 2 2 2
-
-
 
 :::{grid-item-card} {octicon}`search;1.5em;sd-mr-1` Hyperparameter Optimization
 :link: algorithm-development/hyperparameter-optimization
@@ -97,6 +95,16 @@ Systematic approaches to finding optimal training configurations using advanced 
 
 ++++
 {bdg-info}`Optimization`
+:::
+
+:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Advanced Training Strategies
+:link: algorithm-development/loss-functions
+:link-type: doc
+
+Advanced training strategies and optimization techniques for complex scenarios.
+
+++++
+{bdg-warning}`Advanced`
 :::
 
 :::::
@@ -172,7 +180,7 @@ Benchmark training speed, memory usage, and scalability.
 
 ## Research and Validation
 
-::::{grid} 2
+::::{grid} 1 1 1 2
 :gutter: 2 2 2 2
 
 :::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Experimental Design
@@ -181,7 +189,7 @@ Benchmark training speed, memory usage, and scalability.
 
 Design controlled experiments and research studies.
 
-++++
++++
 {bdg-info}`Research`
 :::
 
@@ -191,51 +199,49 @@ Design controlled experiments and research studies.
 
 Build comprehensive evaluation frameworks.
 
-++++
++++
 {bdg-info}`Validation`
 :::
 
-:::{grid-item-card} {octicon}`checklist;1.5em;sd-mr-1` Reproducible Research
-:link: research/reproducible-research-validation
-:link-type: doc
-
-Ensure reproducible results and scientific rigor.
-
-++++
-{bdg-info}`Research`
-:::
-
-
-
-:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Performance Analysis
+:::{grid-item-card} {octicon}`chart;1.5em;sd-mr-1` Performance Analysis
 :link: research/performance-analysis
 :link-type: doc
 
 Analyze algorithm performance and conduct comprehensive evaluations.
 
-++++
++++
 {bdg-info}`Analysis`
 :::
 
-:::{grid-item-card} {octicon}`code;1.5em;sd-mr-1` Custom Algorithms
+:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Custom Algorithms
 :link: research/custom-algorithms
 :link-type: doc
 
 Develop and test custom algorithms for specialized use cases.
 
-++++
++++
 {bdg-warning}`Advanced`
 :::
 
-:::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Ablation Studies
+:::{grid-item-card} {octicon}`search;1.5em;sd-mr-1` Ablation Studies
 :link: research/ablation-studies
 :link-type: doc
 
 Design and conduct systematic ablation studies for component analysis.
 
-++++
++++
 {bdg-info}`Research`
 :::
 
-:::::
+:::{grid-item-card} {octicon}`check-circle;1.5em;sd-mr-1` Reproducible Research
+:link: research/reproducible-research-validation
+:link-type: doc
+
+Ensure reproducible results and scientific rigor.
+
++++
+{bdg-info}`Research`
+:::
+
+::::
 

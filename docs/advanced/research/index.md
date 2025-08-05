@@ -18,10 +18,10 @@ This section provides comprehensive frameworks for conducting rigorous research 
 
 ## Research Methodologies
 
-::::{grid} 1 1 1 1 1 1
+::::{grid} 1 1 1 2
 :gutter: 2 2 2 2
 
-:::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Experimental Design
+:::{grid-item-card} {octicon}`beaker` Experimental Design
 :link: experimental-design-validation
 :link-type: doc
 
@@ -31,7 +31,7 @@ Design controlled experiments and research studies with proper experimental meth
 {bdg-info}`Research Methodology`
 :::
 
-:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Model Evaluation
+:::{grid-item-card} {octicon}`graph` Model Evaluation
 :link: model-evaluation-validation
 :link-type: doc
 
@@ -41,7 +41,7 @@ Build comprehensive evaluation frameworks and implement robust model assessment 
 {bdg-info}`Evaluation Framework`
 :::
 
-:::{grid-item-card} {octicon}`chart;1.5em;sd-mr-1` Performance Analysis
+:::{grid-item-card} {octicon}`chart` Performance Analysis
 :link: performance-analysis
 :link-type: doc
 
@@ -51,7 +51,7 @@ Analyze model performance and interpret results with statistical rigor and compr
 {bdg-info}`Performance Analysis`
 :::
 
-:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Custom Algorithms
+:::{grid-item-card} {octicon}`gear` Custom Algorithms
 :link: custom-algorithms
 :link-type: doc
 
@@ -61,7 +61,7 @@ Develop custom algorithms and extend NeMo RL with new training approaches and me
 {bdg-info}`Algorithm Development`
 :::
 
-:::{grid-item-card} {octicon}`search;1.5em;sd-mr-1` Ablation Studies
+:::{grid-item-card} {octicon}`search` Ablation Studies
 :link: ablation-studies
 :link-type: doc
 
@@ -71,7 +71,7 @@ Conduct systematic ablation studies to understand model components and their con
 {bdg-info}`Component Analysis`
 :::
 
-:::{grid-item-card} {octicon}`check-circle;1.5em;sd-mr-1` Reproducible Research
+:::{grid-item-card} {octicon}`check-circle` Reproducible Research
 :link: reproducible-research-validation
 :link-type: doc
 

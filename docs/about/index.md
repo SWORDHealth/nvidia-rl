@@ -94,8 +94,7 @@ NeMo RL offers several key advantages for reinforcement learning with language m
 - **Extensibility**: Easy implementation of custom algorithms and environments
 - **Benchmarking**: Built-in evaluation frameworks and standardized metrics
 - **Collaboration**: Standardized workflows for multi-institution research projects
-
-**Performance Highlights**: GRPO provides stable training across diverse model sizes and architectures with advanced optimization techniques.
+- **Performance Highlights**: GRPO provides stable training across diverse model sizes and architectures with advanced optimization techniques.
 
 ## NeMo RL Framework
 

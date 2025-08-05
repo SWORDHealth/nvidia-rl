@@ -185,7 +185,7 @@ Architectural decisions and technical specifications for framework internals.
 ::::{grid} 1 1 1 2
 :gutter: 2 2 2 2
 
-:::{grid-item-card} {octicon}`flask;1.5em;sd-mr-1` Experimental Design
+:::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Experimental Design
 :link: advanced/research/experimental-design-validation
 :link-type: doc
 
@@ -195,7 +195,7 @@ Design controlled experiments and research studies with proper experimental meth
 {bdg-info}`Research Methodology`
 :::
 
-:::{grid-item-card} {octicon}`chart-line;1.5em;sd-mr-1` Model Evaluation
+:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Model Evaluation
 :link: advanced/research/model-evaluation-validation
 :link-type: doc
 
@@ -205,7 +205,7 @@ Build comprehensive evaluation frameworks and implement robust model assessment 
 {bdg-info}`Evaluation Framework`
 :::
 
-:::{grid-item-card} {octicon}`speedometer;1.5em;sd-mr-1` Performance Analysis
+:::{grid-item-card} {octicon}`chart;1.5em;sd-mr-1` Performance Analysis
 :link: advanced/research/performance-analysis
 :link-type: doc
 
