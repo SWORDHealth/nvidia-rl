@@ -179,7 +179,7 @@ class RayVirtualCluster:
         max_colocated_worker_groups: int = 1,
         num_gpus_per_node: int = 8,
         name: str = "",
-        placement_group_strategy: str = "SPREAD",
+        placement_group_strategy: str = "PACK",
     ):
         """Initialize a virtual cluster using Ray placement groups.
 
@@ -190,7 +190,7 @@ class RayVirtualCluster:
             max_colocated_worker_groups: Maximum number of worker groups that can be colocated
             num_gpus_per_node: Number of GPUs per node
             name: Name prefix for placement groups
-            placement_group_strategy: Ray placement group strategy ("STRICT_PACK", "PACK", or "SPREAD")
+            placement_group_strategy: Ray placement group strategy ("STRICT_PACK", "PACK", "STRICT_SPREAD", or "SPREAD")
         """
         self._bundle_ct_per_node_list = bundle_ct_per_node_list
         self._world_size = sum(self._bundle_ct_per_node_list)
@@ -305,7 +305,7 @@ class RayVirtualCluster:
                     ]
                     pg = placement_group(
                         bundles=node_bundles,
-                        strategy="PACK",  # Use PACK to keep bundles together
+                        strategy=strategy,
                         name=f"{self.name}-node{node_idx}",
                     )
                     placement_groups.append(pg)
