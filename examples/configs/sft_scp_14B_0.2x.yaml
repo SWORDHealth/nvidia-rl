@@ -4,10 +4,10 @@
 sft:
   ## total number of steps to train will equal
   ## min((max_num_epochs * len(train_dataloader)), max_num_steps)
-  max_num_epochs: 13
-  max_num_steps: 10000
+  max_num_epochs: 1
+  max_num_steps: 200
 
-  val_period: 200
+  val_period: 10
   val_batches: 20
   val_global_batch_size: 128
   val_micro_batch_size: 1
@@ -16,11 +16,11 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: "results/Qwen3-14B-Base-sft-scp-16k-3x"
+  checkpoint_dir: "results/Qwen3-14B-Base-sft-scp-16k-0.2x"
   metric_name: "val_loss"
   higher_is_better: false
   keep_top_k: null
-  save_period: 200
+  save_period: 10
 
 policy:
   model_name: "Qwen/Qwen3-14B-Base"
@@ -76,7 +76,7 @@ logger:
   monitor_gpus: true  # If true, will monitor GPU usage and log to wandb and/or tensorboard
   wandb:
     project: "sft-scp"
-    name: "Qwen3-14B-Base"
+    name: "Qwen3-14B-Base-0.2x"
   tensorboard:
     log_dir: "tb_logs-sft-dev-${data.dataset_name}"
   gpu_monitoring:

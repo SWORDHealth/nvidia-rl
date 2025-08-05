@@ -13,6 +13,6 @@ $(readlink -f /home/zhaochengz/lustre/datasets):/home/zhaochengz/lustre/datasets
 $(readlink -f /home/zhaochengz/lustre/experiments):/home/zhaochengz/lustre/experiments"
 
 sbatch --account=llmservice_modelalignment_ppo --job-name=sft \
-    --nodes=1 --partition=interactive --time=4:0:0 --gres=gpu:8 \
+    --nodes=1 --partition=interactive --time=4:0:0 --gres=gpu:8 --exclusive \
     --output=${BASE_LOG_DIR}/slurm-%j.out \
     /home/zhaochengz/lustre/reinforcer/ray.sub

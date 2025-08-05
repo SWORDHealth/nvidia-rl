@@ -39,6 +39,7 @@ wandb/
 checkpoints/
 results/
 code_snapshots/
+plots/
 
 # Runtime env
 *runtime_env.yaml
