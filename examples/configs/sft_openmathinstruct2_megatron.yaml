@@ -37,13 +37,13 @@ policy:
     distributed_data_parallel_config:
       average_in_collective: true
       data_parallel_sharding_strategy: optim_grads_params
-      grad_reduce_in_fp32: false
+      grad_reduce_in_fp32: true
       overlap_grad_reduce: true
-      overlap_param_gather: false
+      overlap_param_gather: true
     empty_unused_memory_level: 1
     enabled: true
     expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 8
+    expert_model_parallel_size: 1
     num_layers_in_first_pipeline_stage: null
     num_layers_in_last_pipeline_stage: null
     optimizer:
@@ -56,11 +56,15 @@ policy:
       lr: 0.00002
       min_lr: 0.00002
       optimizer: adam
-      params_dtype: float32
+      params_dtype: bfloat16
       sgd_momentum: 0.9
       use_distributed_optimizer: true
-      use_precision_aware_optimizer: true
+      use_precision_aware_optimizer: false #true ## TODO: precision aware optim not working with fp8. Is this expected?
       weight_decay: 0.01
+
+      ## recently introduced, our current mcore commit doesn't have this
+      #fp8_recipe: delayed
+
     pipeline_dtype: bfloat16
     pipeline_model_parallel_size: 1
     scheduler:
@@ -71,7 +75,7 @@ policy:
       lr_warmup_iters: 1
       start_weight_decay: 0.01
       weight_decay_incr_style: constant
-    sequence_parallel: true
+    sequence_parallel: false
     tensor_model_parallel_size: 1
 
     freeze_moe_router: true
@@ -82,7 +86,15 @@ policy:
     apply_rope_fusion: True
 
     env_vars:
-      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+
+    fp8_cfg:
+      enabled: true
+      fp8: hybrid
+      fp8_recipe: delayed
+      fp8_param: true # false gives the following error: "RuntimeError: /TransformerEngine/transformer_engine/common/gemm/cublaslt_gemm.cu:116 in function CanonicalizeGemmInput: Assertion failed: !is_fp8_dtype(ret.Atype). Input A is missing column-wise usage"
+      fp8_dot_product_attention: false #true
+      fp8_multi_head_attention: false #true
 
   dynamic_batching:
     enabled: false
@@ -94,11 +106,11 @@ policy:
     enabled: True
     train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
     algorithm: "modified_first_fit_decreasing"
-        sequence_length_round: 64
+    sequence_length_round: 64
 
   # makes the training sequence length divisible by the tensor parallel size
   # this is useful for sequence parallel training
-  make_sequence_length_divisible_by: ${policy.megatron_cfg.tensor_model_parallel_size}
+  make_sequence_length_divisible_by: ${mul:16, ${policy.megatron_cfg.tensor_model_parallel_size}}
   max_grad_norm: null
 
   optimizer: null
@@ -121,7 +133,7 @@ logger:
   monitor_gpus: false  # If true, will monitor GPU usage and log to wandb and/or tensorboard
   wandb:
     project: "sft-openmathinstruct-megatron"
-    name: "qwen30ba3b"
+    name: "llama8b"
   tensorboard:
     log_dir: "tb_logs-openmathinstruct-nemorl-1M_train"
   mlflow:
@@ -133,5 +145,5 @@ logger:
 
 cluster:
   gpus_per_node: 8
-  num_nodes: 1
+  num_nodes: 2
                                                   

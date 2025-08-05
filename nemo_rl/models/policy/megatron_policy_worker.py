@@ -56,7 +56,7 @@ from megatron.inference.text_generation.mcore_engine_server import (
     run_mcore_engine,
 )
 from megatron.training.utils import get_ltor_masks_and_position_ids
-from megatron.bridge import CausalLMBridge
+from megatron.bridge import AutoBridge
 from megatron.bridge.training import fault_tolerance
 from megatron.bridge.training.checkpointing import (
     checkpoint_exists,
@@ -372,6 +372,7 @@ class MegatronPolicyWorker:
         **kwargs: Any,
     ):
         self.cfg = config
+
         dtype_map = {
             "float32": torch.float32,
             "bfloat16": torch.bfloat16,
@@ -515,7 +516,7 @@ class MegatronPolicyWorker:
             ## one of e4m3, hybrid (or none)
             model_cfg.fp8 = self.cfg["megatron_cfg"]["fp8_cfg"]["fp8"]
             model_cfg.fp8_recipe = self.cfg["megatron_cfg"]["fp8_cfg"]["fp8_recipe"]
-            model_cfg.fp8_param = self.cfg["megatron_cfg"]["fp8_cfg"]["fp8_param"]
+            model_cfg.fp8_param = True #self.cfg["megatron_cfg"]["fp8_cfg"]["fp8_param"]
             model_cfg.fp8_amax_history_len = 1024  ## TODO: make configurable?
             model_cfg.fp8_amax_compute_algo = "max"  ## TODO: make configurable?
             model_cfg.fp8_dot_product_attention = self.cfg["megatron_cfg"]["fp8_cfg"][
@@ -524,6 +525,12 @@ class MegatronPolicyWorker:
             model_cfg.fp8_multi_head_attention = self.cfg["megatron_cfg"]["fp8_cfg"][
                 "fp8_multi_head_attention"
             ]
+            model_cfg.fp8_param_gather = True
+            model_cfg.fp8_margin=0
+
+            #model_cfg.deterministic_mode = True
+
+            #model_cfg.attention_backend='fused'
 
         model_cfg.pipeline_dtype = dtype_map[self.cfg["megatron_cfg"]["pipeline_dtype"]]
         model_cfg.parallel_output = True
@@ -557,6 +564,7 @@ class MegatronPolicyWorker:
             fully_parallel_load=True,  # Enable fully parallel load
             load_rng=False,
         )
+
         self.megatron_cfg = ConfigContainer(
             model=model_cfg,
             checkpoint=checkpoint_config,
@@ -589,6 +597,7 @@ class MegatronPolicyWorker:
                 data_parallel_sharding_strategy=self.cfg["megatron_cfg"][
                     "distributed_data_parallel_config"
                 ]["data_parallel_sharding_strategy"],
+                fp8_param_gather=self.cfg["megatron_cfg"]["fp8_cfg"]["fp8_param"],
             ),
             scheduler=SchedulerConfig(
                 **self.cfg["megatron_cfg"]["scheduler"],
@@ -599,6 +608,7 @@ class MegatronPolicyWorker:
                 tokenizer_model=hf_model_name,
             ),
         )
+
         self.megatron_cfg.validate()
         (
             self.mcore_state,
@@ -708,7 +718,7 @@ class MegatronPolicyWorker:
         )
         self.final_padded_vocab_size = tokenizer_config.padded_vocab_size
         self.dp_size = worker_sharding_annotations.get_axis_size("data_parallel")
-        self.megatron_bridge = CausalLMBridge.from_hf_pretrained(hf_model_name)
+        self.megatron_bridge = AutoBridge.from_hf_pretrained(hf_model_name)
 
         # Create a map that maps any local parameter name to a list of global parameter names.
         # This map is repeatedly used by parameter gatherring phase during refit of every step.
@@ -888,6 +898,7 @@ class MegatronPolicyWorker:
                         forward_only=eval_mode,
                         do_not_average_loss=True,
                     )
+
 
                 # Empty unused memory.
                 if self.cfg["megatron_cfg"]["empty_unused_memory_level"] >= 1:
