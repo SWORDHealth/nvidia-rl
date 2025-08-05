@@ -15,13 +15,17 @@ import random
 import warnings
 from collections import defaultdict
 from functools import wraps
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import torch
 from transformers import AutoTokenizer
 
 from nemo_rl.data import hf_datasets
+from nemo_rl.models.dtensor.parallelize import (
+    get_logprobs_from_vocab_parallel_logits,
+    token_level_entropy_from_vocab_parallel_logits,
+)
 from nemo_rl.models.policy import TokenizerConfig
 
 
@@ -44,6 +48,7 @@ def calculate_baseline_and_std_per_prompt(
     rewards: torch.Tensor,
     valid_mask: torch.Tensor,
     leave_one_out_baseline: bool = True,
+    expected_responses_per_prompt: Optional[int] = None,
 ):
     """Function to compute a baseline for each (prompt, response) pair in the batch.
 
@@ -55,11 +60,29 @@ def calculate_baseline_and_std_per_prompt(
     valid_mask: tensor (b,)       Vector of 0/1, where 0 is to ignore and 1 is to keep
     leave_one_out_baseline: bool  Compute an unbiased baseline by leaving out the sample that
                                   the baseline is for (from RLOO https://arxiv.org/abs/2402.14740)
+    expected_responses_per_prompt: int  Expected number of responses per prompt (for validation)
 
     Returns:
     tensor (b,) of baselines on the same device as 'rewards'
     """
     unique_prompts = torch.unique(prompts, dim=0)
+
+    # ASSERTION 1: Check that each prompt has the expected number of responses
+    if expected_responses_per_prompt is not None:
+        for i in range(len(unique_prompts)):
+            is_matching_prompt = (prompts == unique_prompts[i]).all(1)
+            num_responses_this_prompt = is_matching_prompt.sum().item()
+            
+            if num_responses_this_prompt != expected_responses_per_prompt:
+                prompt_repr = unique_prompts[i][:10]  # First 10 tokens for debugging
+                raise AssertionError(
+                    f"Baseline calculation correctness violation: "
+                    f"Prompt {prompt_repr}... has {num_responses_this_prompt} responses "
+                    f"but expected {expected_responses_per_prompt}. "
+                    f"This indicates that responses for the same prompt are split across DP ranks, "
+                    f"which will result in incorrect baseline calculation. "
+                    f"Consider using grouped sharding or ensuring num_prompts >= num_dp_ranks."
+                )
 
     baseline = torch.zeros_like(rewards)
     sq_baseline = torch.zeros_like(rewards)
@@ -231,3 +254,47 @@ def get_tokenizer(tokenizer_config: TokenizerConfig) -> AutoTokenizer:
         print("No chat template provided, using tokenizer's default")
 
     return tokenizer
+
+
+def compute_token_level_entropy(
+    logits: Union[torch.Tensor, torch.distributed.tensor.DTensor],
+):
+    """Computes token-level entropy from logits and input ids.
+
+    return B x (S-1)
+    """
+    if isinstance(logits, torch.distributed.tensor.DTensor):
+        token_level_entropy = token_level_entropy_from_vocab_parallel_logits(
+            vocab_parallel_logits=logits,
+        )
+    else:
+        next_token_logits_wo_last = logits[:, :-1]  # Remove last position's logits
+        next_token_logprobs = torch.nn.functional.log_softmax(
+            next_token_logits_wo_last, dim=-1
+        )
+        token_level_entropy = -(next_token_logprobs.exp() * next_token_logprobs).sum(-1)
+
+    return token_level_entropy
+
+
+def compute_token_logprobs(
+    logits: Union[torch.Tensor, torch.distributed.tensor.DTensor],
+    input_ids: torch.Tensor,
+):
+    """Computes token-level logprobs from logits and input ids."""
+    if isinstance(logits, torch.distributed.tensor.DTensor):
+        curr_logprobs = get_logprobs_from_vocab_parallel_logits(
+            vocab_parallel_logits=logits,
+            input_ids=input_ids,
+        )
+    else:
+        next_token_logits_wo_last = logits[:, :-1]  # Remove last position's logits
+        next_token_logprobs = torch.nn.functional.log_softmax(
+            next_token_logits_wo_last, dim=-1
+        )
+        next_tokens = input_ids[:, 1:].cuda()  # Skip first token
+        curr_logprobs = next_token_logprobs.gather(
+            dim=-1, index=next_tokens.unsqueeze(-1)
+        ).squeeze(-1)
+
+    return curr_logprobs

@@ -11,7 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 import os
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, TypedDict
 
@@ -57,9 +62,94 @@ from nemo_rl.utils.logger import (
 )
 from nemo_rl.utils.timer import Timer
 
+
+# ===============================================================================
+# Helper Functions  
+# ===============================================================================
+def apply_environment_post_processing(
+    batch: BatchedDataDict[DatumSpec], 
+    task_to_env: Dict[str, EnvironmentInterface],
+    prefix: str = ""
+) -> Tuple[BatchedDataDict[DatumSpec], Dict[str, Any]]:
+    """Apply environment post-processing to a batch.
+    
+    Args:
+        batch: Batch containing completed rollout data
+        task_to_env: Dictionary mapping task names to their corresponding environments
+        prefix: Optional prefix for metric names (e.g., "val_" for validation metrics)
+        
+    Returns:
+        Tuple of (original_batch, environment_metrics)
+        
+    Note:
+        This function only collects metrics from environment post-processing.
+        The batch is returned unchanged since training data was already processed during rollouts.
+    """
+    import ray
+    
+    env_metrics = {}
+    
+    # Collect futures for all environment post-processing calls
+    futures = []
+    task_info = []  # Store task_name for each future
+    
+    for task_name, env in task_to_env.items():
+        # Find indices for this task type. This MUST match the logic in `calculate_rewards`
+        # which uses the "task_name" field for dispatching to the correct environment.
+        task_indices = [i for i, name in enumerate(batch["task_name"]) if name == task_name]
+        if task_indices:
+            # Create a sub-batch for this task
+            task_batch = batch.select_indices(task_indices)
+            
+            # Apply environment post-processing (Ray remote call)
+            future = env.global_post_process_and_metrics.remote(task_batch)
+            futures.append(future)
+            task_info.append(task_name)
+    
+    # Get results and collect only metrics (ignore processed batches)
+    if futures:
+        results = ray.get(futures)
+        
+        # Process results - only collect metrics, ignore batch modifications
+        for task_name, (_, task_env_metrics) in zip(task_info, results):
+            # Collect metrics with appropriate prefix
+            metric_prefix = f"{prefix}{task_name}/env_" if prefix else f"{task_name}/env_"
+            env_metrics.update({f"{metric_prefix}{k}": v for k, v in task_env_metrics.items()})
+    
+    # Return original batch unchanged, just with additional metrics
+    return batch, env_metrics
+
+
 # ===============================================================================
 # Configuration
 # ===============================================================================
+@dataclass
+class TimeLimitTimer:
+    """Timer to tell us when the time limit is reached"""
+
+    duration: Optional[str]
+
+    def __post_init__(self):
+        self._duration = float("inf")
+
+        if self.duration is not None:
+            days, hours, mins, seconds = map(int, self.duration.strip().split(":"))
+            self._duration = timedelta(
+                days=days, hours=hours, minutes=mins, seconds=seconds
+            ).total_seconds()
+
+    def start_time(self):
+        self._start_time = time.monotonic()
+
+    def get_time_elapsed(self):
+        return time.monotonic() - self._start_time
+
+    def get_time_remaining(self):
+        return self._duration - self.get_time_elapsed()
+
+    def is_finished(self):
+        time_left = self.get_time_remaining()
+        return time_left <= 0
 
 
 class GRPOConfig(TypedDict):
@@ -71,6 +161,7 @@ class GRPOConfig(TypedDict):
     val_batch_size: int
     val_at_start: bool
     checkpoint_dir: str
+    check_baseline_correctness: bool  # Enable baseline correctness assertions
 
 
 class GRPOSaveState(TypedDict):
@@ -203,9 +294,13 @@ def setup(
     val_dataloader = None
     # If validation is enabled, load the validation dataloader
     if grpo_config["val_period"] > 0 or grpo_config["val_at_start"]:
+        val_batch_size = min(master_config["grpo"]["max_val_samples"], len(val_dataset))
+        if "val_batch_size" in master_config["grpo"]:
+            print("val batch size is specified but we don't actually use it anymore")
+
         val_dataloader = StatefulDataLoader(
             val_dataset,
-            batch_size=grpo_config["val_batch_size"],
+            batch_size=val_batch_size,
             shuffle=shuffle_val,
             collate_fn=rl_collate_fn,
             generator=val_data_generator,
@@ -347,6 +442,9 @@ def grpo_train(
 ):
     """Run GRPO training algorithm."""
     timer = Timer()
+    time_limit_timer = TimeLimitTimer(duration=master_config["grpo"]["time_limit"])
+    time_limit_timer.start_time()
+
     NEED_REFIT = True
     # If policy_generation is None, use the policy as the generation interface (hf framework backend)
     if policy_generation is None:
@@ -374,7 +472,7 @@ def grpo_train(
             POLICY_GENERATION_STALE = False
         else:
             policy_generation.prepare_for_generation()
-        val_metrics, validation_timings = validate(
+        val_metrics, validation_timings, _, val_batch = validate(
             policy_generation,
             val_dataloader,
             tokenizer,
@@ -382,8 +480,18 @@ def grpo_train(
             step=0,
             master_config=master_config,
             logger=logger,
+            num_repeats=master_config["grpo"]["num_val_repeats"],
+            return_val_batch=True,
         )
         policy_generation.finish_generation()
+
+        policy.prepare_for_training()
+        val_entropy = policy.get_entropy(val_batch)["entropy"]
+        tok_mask = val_batch["token_mask"][:, 1:]
+        val_entropy = (val_entropy * tok_mask).sum() / tok_mask.sum()
+        val_metrics["entropy"] = val_entropy.item()
+        policy.offload_after_refit()
+
         logger.log_metrics(val_metrics, step, prefix="validation")
         logger.log_metrics(validation_timings, step, prefix="timing/validation")
 
@@ -443,6 +551,41 @@ def grpo_train(
                 )
                 policy_generation.finish_generation()
 
+            # Apply environment post-processing for training
+            print("▶ Applying environment post-processing...")
+            with timer.time("env_post_processing"):
+                repeated_batch, env_metrics = apply_environment_post_processing(
+                    repeated_batch, task_to_env
+                )
+                rollout_metrics.update(env_metrics)
+
+            # get dataset specific pass at k
+            prompt_based_reward_dict = defaultdict(list)
+            idx_dictionary = defaultdict(list)
+            for dataset, r, idx in zip(
+                repeated_batch["dataset_names"],
+                repeated_batch["total_reward"],
+                repeated_batch["idx"],
+            ):
+                prompt_based_reward_dict[dataset].append(r)
+                idx_dictionary[dataset].append(idx)
+
+            for dataset, idx in idx_dictionary.items():
+                idx_tensor = torch.as_tensor(idx).view(
+                    -1, master_config["grpo"]["num_generations_per_prompt"]
+                )
+                assert torch.allclose(
+                    idx_tensor.unique(dim=-1).flatten(), idx_tensor[:, 0].flatten()
+                ), f"idx is not unique for dataset {dataset}"
+
+            for dataset, rewards in prompt_based_reward_dict.items():
+                rewards_tensor = torch.as_tensor(rewards, dtype=torch.float32).view(
+                    -1, master_config["grpo"]["num_generations_per_prompt"]
+                )
+                rollout_metrics[
+                    f"{dataset}/pass_at_{master_config['grpo']['num_generations_per_prompt']}"
+                ] = (rewards_tensor > 0).any(-1).float().mean()
+
             # Calculate rewards & advantages
             print("▶ Processing rewards...")
             with timer.time("reward_calculation"):
@@ -450,6 +593,10 @@ def grpo_train(
                 rewards = repeated_batch["total_reward"]
 
                 print("▶ Computing advantages...")
+                
+                # Check for potentially problematic configuration
+                expected_responses = master_config["grpo"]["num_generations_per_prompt"] if master_config["grpo"].get("check_baseline_correctness", True) else None
+                
                 baseline, std, more_rollout_metrics = (
                     calculate_baseline_and_std_per_prompt(
                         input_ids,
@@ -458,6 +605,7 @@ def grpo_train(
                         leave_one_out_baseline=master_config["grpo"][
                             "use_leave_one_out_baseline"
                         ],
+                        expected_responses_per_prompt=expected_responses,
                     )
                 )
                 advantages = (rewards - baseline).unsqueeze(-1)
@@ -580,10 +728,28 @@ def grpo_train(
             with timer.time("policy_training"):
                 list_of_train_metrics = policy.train(train_data, loss_fn)
 
-            is_last_step = step + 1 == min(max_num_steps, len(dataloader))
+            for i, m in enumerate(list_of_train_metrics):
+                to_log = optim_step + i
 
+                grad_sparsity_dict = m.pop("grad_sparsity_dict")
+                log_dir = master_config["logger"]["log_dir"]
+                sparsity_file_path = os.path.join(
+                    log_dir, f"optim_step_{to_log}_grad_sparsity.json"
+                )
+
+                with open(sparsity_file_path, "w") as f:
+                    json.dump(grad_sparsity_dict, f, indent=2)
+
+                print(f"Saved grad sparsity to {sparsity_file_path}")
+
+            time_limit_reached = time_limit_timer.is_finished()
+            is_last_step = step + 1 == min(max_num_steps, len(dataloader))
             # Run validation if it's a validation step
-            if is_last_step or (val_period > 0 and (step + 1) % val_period == 0):
+            if (
+                is_last_step
+                or (val_period > 0 and (step + 1) % val_period == 0)
+                or time_limit_reached
+            ):
                 if NEED_REFIT and POLICY_GENERATION_STALE:
                     refit_policy_generation(
                         policy,
@@ -593,7 +759,7 @@ def grpo_train(
                     POLICY_GENERATION_STALE = False
                 else:
                     policy_generation.prepare_for_generation()
-                val_metrics, validation_timings = validate(
+                val_metrics, validation_timings, _, val_batch = validate(
                     policy_generation,
                     val_dataloader,
                     tokenizer,
@@ -601,8 +767,18 @@ def grpo_train(
                     step=step + 1,
                     master_config=master_config,
                     logger=logger,
+                    num_repeats=master_config["grpo"]["num_val_repeats"],
+                    return_val_batch=True,
                 )
                 policy_generation.finish_generation()
+
+                policy.prepare_for_training()
+                val_entropy = policy.get_entropy(val_batch)["entropy"]
+                tok_mask = val_batch["token_mask"][:, 1:]
+                val_entropy = (val_entropy * tok_mask).sum() / tok_mask.sum()
+                val_metrics["entropy"] = val_entropy.item()
+                policy.offload_after_refit()
+
                 logger.log_metrics(
                     validation_timings, step + 1, prefix="timing/validation"
                 )
@@ -613,6 +789,7 @@ def grpo_train(
             if master_config["checkpointing"]["enabled"] and (
                 is_last_step
                 or (step + 1) % master_config["checkpointing"]["save_period"] == 0
+                or time_limit_reached
             ):  # +1 because step is 0-indexed
                 policy.prepare_for_training()
 
@@ -648,6 +825,8 @@ def grpo_train(
         log_data["generation_logprobs"] = train_data["generation_logprobs"].tolist()
         log_data["prev_logprobs"] = train_data["prev_logprobs"].tolist()
         log_data["input_lengths"] = input_lengths.tolist()
+        log_data["dataset_names"] = repeated_batch["dataset_names"]
+
         logger.log_batched_dict_as_jsonl(log_data, f"train_data_step{step}.jsonl")
         table = logger.log_batched_dict_as_table(log_data, prefix="train", step=step)
 
@@ -657,9 +836,6 @@ def grpo_train(
         timing_metrics = timer.get_timing_metrics(reduction_op="sum")
 
         print(f"  • Avg Reward: {np.mean(rewards.numpy()):.4f}")
-        print(
-            f"  • Mean Generation Length: {rollout_metrics['mean_gen_tokens_per_sample']:.4f}"
-        )
 
         print("\n⏱️  Timing:")
         # Display total time first, separately
@@ -693,6 +869,12 @@ def grpo_train(
         if step >= max_num_steps:
             break
 
+        if time_limit_reached:
+            print(
+                f"Time limit reached of {master_config['grpo']['time_limit']}, stopping training"
+            )
+            break
+
 
 def validate(
     policy_generation: GenerationInterface,
@@ -701,7 +883,10 @@ def validate(
     val_task_to_env: Dict[str, EnvironmentInterface],
     step: int,
     master_config: MasterConfig,
-    logger: Logger,
+    logger: Optional[Logger] = None,
+    num_repeats: int = 1,
+    return_data_for_saving: bool = False,
+    return_val_batch: bool = False,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Run validation on the validation dataset."""
     if val_dataloader is None:
@@ -713,63 +898,118 @@ def validate(
         print(f"▶ Starting validation at step {step}...")
 
         total_rewards = []
-        total_lengths = []
         all_message_logs = []  # Collect all message logs
 
-        max_batches = (
-            master_config["grpo"]["max_val_samples"]
-            // master_config["grpo"]["val_batch_size"]
+        data_for_saving = []
+
+        try:
+            val_batch = next(iter(val_dataloader)).repeat_interleave(num_repeats)
+        except StopIteration:
+            print("  No validation, skipping validation")
+            return
+
+        # Generate responses (updates the LLMMessageLogType in batch_with_msg_logs)
+        val_batch, gen_metrics = run_multi_turn_rollout(
+            policy_generation,
+            val_batch,
+            tokenizer,
+            val_task_to_env,
+            max_seq_len=master_config["policy"]["max_total_sequence_length"],
+            max_rollout_turns=master_config["grpo"]["max_rollout_turns"],
+            greedy=False,
         )
-        for batch_idx, val_batch in enumerate(val_dataloader):
-            if batch_idx >= max_batches:
-                break
 
-            # Generate responses (updates the LLMMessageLogType in batch_with_msg_logs)
-            val_batch, gen_metrics = run_multi_turn_rollout(
-                policy_generation,
-                val_batch,
-                tokenizer,
-                val_task_to_env,
-                max_seq_len=master_config["policy"]["max_total_sequence_length"],
-                max_rollout_turns=master_config["grpo"]["max_rollout_turns"],
-                greedy=False,
-            )
-            rewards = val_batch["total_reward"]
+        # Apply environment post-processing for validation
+        val_batch, val_env_metrics = apply_environment_post_processing(
+            val_batch, val_task_to_env, prefix="val_"
+        )
+        gen_metrics.update(val_env_metrics)
 
-            total_rewards.extend(rewards.tolist())
-            total_lengths.append(gen_metrics["mean_gen_tokens_per_sample"])
+        # Collect message logs for later display
+        to_env = [
+            get_keys_from_message_log(val_batch["message_log"][i], ["role", "content"])
+            for i in range(len(val_batch["message_log"]))
+        ]
+        all_message_logs.extend(to_env)
 
-            # Collect message logs for later display
-            to_env = get_keys_from_message_log(
-                val_batch["message_log"], ["role", "content"]
-            )
-            all_message_logs.extend(to_env)
+        if return_data_for_saving:
+            # Transpose val_batch from batch-first to sample-first
+            batch_size = val_batch.size
+            repeat_idx_counter = defaultdict(int)
+            for i in range(batch_size):
+                sample_dict = {}
+                for k, v in val_batch.items():
+                    # hack to use the env stuff
+                    if k == "message_log":
+                        v = to_env
 
-            if batch_idx == 0:
-                for interaction in val_batch["message_log"][0]:
-                    if interaction["role"] == "user":
-                        prompt = interaction["content"]
-                    elif interaction["role"] == "assistant":
-                        response = interaction["content"]
-                    else:
-                        environment = interaction["content"]
+                    val = v[i]
+                    if torch.is_tensor(val):
+                        val = val.item()
+                    sample_dict[k] = val
 
-                reward = val_batch["total_reward"][0].item()
+                    if k == "idx":
+                        repeat_idx = repeat_idx_counter[val]
+                        repeat_idx_counter[val] += 1
+
+                sample_dict["eval_idx"] = f"{sample_dict['idx']}_{repeat_idx}"
+                data_for_saving.append(sample_dict)
+
+        # Log one example for each unique dataset
+        unique_datasets = list(set(val_batch["dataset_names"]))
+        table = None
+
+        for dataset_name in unique_datasets:
+            dataset_idx = val_batch["dataset_names"].index(dataset_name)
+
+            for interaction in val_batch["message_log"][dataset_idx]:
+                if interaction["role"] == "user":
+                    prompt = interaction["content"]
+                elif interaction["role"] == "assistant":
+                    response = interaction["content"]
+                else:
+                    environment = interaction["content"]
+
+            reward = val_batch["total_reward"][dataset_idx].item()
+
+            if logger is not None:
                 table = logger.log_table_contents(
-                    step, prompt, response, environment, reward, "validation"
+                    step,
+                    prompt,
+                    response,
+                    environment,
+                    reward,
+                    dataset_name,
+                    f"validation/{dataset_name}",
                 )
 
-        # Calculate validation metrics
-        accuracy = sum(total_rewards) / len(total_rewards)
-        avg_length = sum(total_lengths) / len(total_lengths)
-
         val_metrics = {
-            "accuracy": accuracy,
-            "avg_length": avg_length,
             "table": table,
         }
+        val_metrics.update(gen_metrics)
 
-        # Print sample conversations only once at the end of validation
+        prompt_based_reward_dict = defaultdict(list)
+        idx_dictionary = defaultdict(list)
+        for dataset, r, idx in zip(
+            val_batch["dataset_names"], val_batch["total_reward"], val_batch["idx"]
+        ):
+            prompt_based_reward_dict[dataset].append(r)
+            idx_dictionary[dataset].append(idx)
+
+        for dataset, idx in idx_dictionary.items():
+            idx_tensor = torch.as_tensor(idx).view(-1, num_repeats)
+            assert torch.allclose(
+                idx_tensor.unique(dim=-1).flatten(), idx_tensor[:, 0].flatten()
+            ), f"idx is not unique for dataset {dataset}"
+
+        for dataset, rewards in prompt_based_reward_dict.items():
+            rewards_tensor = torch.as_tensor(rewards, dtype=torch.float32).view(
+                -1, num_repeats
+            )
+            val_metrics[f"{dataset}/pass_at_{num_repeats}"] = (
+                (rewards_tensor > 0).any(-1).float().mean()
+            )
+
         try:
             print_message_log_samples(
                 all_message_logs,
@@ -784,15 +1024,11 @@ def validate(
             print(f"\n  ⚠️ Error displaying message samples: {str(e)}")
             print("  ⚠️ Continuing validation without displaying samples...")
 
+    val_metrics["accuracy"] = val_batch["total_reward"].mean().item()
+
     # Get timing metrics
     timing_metrics = timer.get_timing_metrics(reduction_op="sum")
     validation_time = timing_metrics.get("total_validation_time", 0)
-
-    # Print summary of validation results
-    print("\n📊 Validation Results:")
-    print(f"    • Accuracy: {accuracy:.4f}")
-    print(f"    • Average response length: {avg_length:.1f} tokens")
-    print(f"    • Samples processed: {len(total_rewards)}")
 
     # Print timing information
     print("\n  ⏱️  Validation Timing:")
@@ -801,5 +1037,32 @@ def validate(
 
     # Make sure to reset the timer after validation
     timer.reset()
+    if return_val_batch:
+        # add token loss mask
+        for i, message_log in enumerate(val_batch["message_log"]):
+            for j, message in enumerate(message_log):
+                if message["role"] == "assistant":
+                    message["token_loss_mask"] = torch.ones_like(message["token_ids"])
+                else:
+                    message["token_loss_mask"] = torch.zeros_like(message["token_ids"])
 
-    return val_metrics, timing_metrics
+        flat_messages, input_lengths = batched_message_log_to_flat_message(
+            val_batch["message_log"],
+            pad_value_dict={"token_ids": tokenizer.pad_token_id},
+            make_sequence_length_divisible_by=master_config["policy"][
+                "make_sequence_length_divisible_by"
+            ],
+        )
+
+        # Create training data from flattened messages
+        val_data = BatchedDataDict[ClippedPGLossDataDict](
+            {
+                "input_ids": flat_messages["token_ids"],
+                "input_lengths": input_lengths,
+                "token_mask": flat_messages["token_loss_mask"],
+            }
+        )
+        val_data.to("cpu")
+        return val_metrics, timing_metrics, data_for_saving, val_data
+    else:
+        return val_metrics, timing_metrics, data_for_saving
