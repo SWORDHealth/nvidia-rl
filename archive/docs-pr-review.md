@@ -1,21 +1,21 @@
-# NeMo RL: Documentation Files for GitHub MR Review
+# NeMo RL: Documentation Files for GitHub PR Review
 
-This document organizes all files in the `/docs` directory by logical groupings for efficient GitHub MR assignments and developer review. There are approximately **80 .md files** that need to be reviewed across the 6 MR groups (excluding the 81 auto-generated API documentation files).
+This document organizes all files in the `/docs` directory by logical groupings for efficient GitHub PR assignments and developer review. There are approximately **80 .md files** that need to be reviewed across the 6 PR groups (excluding 81 auto-generated API documentation files).
 
 ## Table of Contents
 
-- [MR Group 1: Core Setup & User Onboarding](#mr-group-1-core-setup--user-onboarding)
-- [MR Group 2: Training Algorithms & Learning Resources](#mr-group-2-training-algorithms--learning-resources)
-- [MR Group 3: Model Development & Environment](#mr-group-3-model-development--environment)
-- [MR Group 4: Core Architecture & Design](#mr-group-4-core-architecture--design)
-- [MR Group 5: Advanced Performance & Research](#mr-group-5-advanced-performance--research)
-- [MR Group 6: API Documentation & References](#mr-group-6-api-documentation--references)
+- [PR Group 1: Core Setup & User Onboarding](#PR-group-1-core-setup--user-onboarding)
+- [PR Group 2: Training Algorithms & Learning Resources](#PR-group-2-training-algorithms--learning-resources)
+- [PR Group 3: Model Development & Environment](#PR-group-3-model-development--environment)
+- [PR Group 4: Core Architecture & Design](#PR-group-4-core-architecture--design)
+- [PR Group 5: Advanced Performance & Research](#PR-group-5-advanced-performance--research)
+- [PR Group 6: API Documentation & References](#PR-group-6-api-documentation--references)
 
 - [Total Count Summary](#total-count-summary)
 
 ---
 
-## MR Group 1: Core Setup & User Onboarding
+## PR Group 1: Core Setup & User Onboarding
 **Focus:** Essential installation guides, environment setup, first-time user onboarding, and project overview
 **Priority:** High
 
@@ -37,7 +37,7 @@ This document organizes all files in the `/docs` directory by logical groupings 
 
 ---
 
-## MR Group 2: Training Algorithms & Learning Resources
+## PR Group 2: Training Algorithms & Learning Resources
 **Focus:** Core RLHF algorithms, tutorials, examples, use cases, and hands-on learning materials
 **Priority:** High
 
@@ -66,7 +66,7 @@ This document organizes all files in the `/docs` directory by logical groupings 
 
 ---
 
-## MR Group 3: Model Development & Environment
+## PR Group 3: Model Development & Environment
 **Focus:** Custom model integration, environment development, debugging tools, performance profiling, and training optimization
 **Priority:** High
 
@@ -89,7 +89,7 @@ This document organizes all files in the `/docs` directory by logical groupings 
 
 ---
 
-## MR Group 4: Core Architecture & Design
+## PR Group 4: Core Architecture & Design
 **Focus:** System design, core architecture, and development infrastructure
 **Priority:** Medium
 
@@ -116,7 +116,7 @@ This document organizes all files in the `/docs` directory by logical groupings 
 
 ---
 
-## MR Group 5: Advanced Performance & Research
+## PR Group 5: Advanced Performance & Research
 **Focus:** Performance optimization, research methodologies, and algorithm development
 **Priority:** Medium
 
@@ -146,7 +146,7 @@ This document organizes all files in the `/docs` directory by logical groupings 
 
 ---
 
-## MR Group 6: API Documentation & References
+## PR Group 6: API Documentation & References
 **Focus:** Complete API reference, distributed computing interfaces, CLI tools, and configuration management
 **Priority:** Medium
 
@@ -189,7 +189,7 @@ Breakdown:
 - **New sections**: `training-optimization/`, `references/`, `_extensions/`
 - **Enhanced API docs**: Comprehensive auto-generated API documentation
 - **Consolidated structure**: More logical organization with better separation of concerns
-- **Streamlined MR groups**: Reduced from 12 to 6 manageable groups for better project management
+- **Streamlined PR groups**: Reduced from 12 to 6 manageable groups for better project management
 
 ---
 
@@ -264,7 +264,7 @@ Successfully implemented modern design features:
 ## Documentation Review Outline
 
 ### **Review Process Overview**
-This outline provides a structured approach for reviewing the NeMo RL documentation transformation across all 6 MR groups.
+This outline provides a structured approach for reviewing the NeMo RL documentation transformation across all 6 PR groups.
 
 ### **Review Criteria**
 
@@ -293,9 +293,9 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 - **Links**: All internal and external links work
 - **Build system**: Content builds without errors
 
-### **Review Checklist by MR Group**
+### **Review Checklist by PR Group**
 
-#### **MR Group 1: Core Setup & User Onboarding** (11 files)
+#### **PR Group 1: Core Setup & User Onboarding** (11 files)
 **Priority**: High - Critical for user adoption
 
 **Review Focus:**
@@ -312,7 +312,7 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 - Is the onboarding experience smooth and logical?
 - Are there any gaps in the setup process?
 
-#### **MR Group 2: Training Algorithms & Learning Resources** (18 files)
+#### **PR Group 2: Training Algorithms & Learning Resources** (18 files)
 **Priority**: High - Core functionality documentation
 
 **Review Focus:**
@@ -329,7 +329,7 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 - Do tutorials provide sufficient detail for implementation?
 - Are use cases relevant to target audiences?
 
-#### **MR Group 3: Model Development & Environment** (12 files)
+#### **PR Group 3: Model Development & Environment** (12 files)
 **Priority**: High - Essential for custom implementations
 
 **Review Focus:**
@@ -346,7 +346,7 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 - Are debugging and optimization guides actionable?
 - Do troubleshooting solutions actually work?
 
-#### **MR Group 4: Core Architecture & Design** (16 files)
+#### **PR Group 4: Core Architecture & Design** (16 files)
 **Priority**: Medium - Important for understanding system
 
 **Review Focus:**
@@ -363,7 +363,7 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 - Are design decisions clearly explained?
 - Is the technical depth appropriate?
 
-#### **MR Group 5: Advanced Performance & Research** (16 files)
+#### **PR Group 5: Advanced Performance & Research** (16 files)
 **Priority**: Medium - Important for advanced users
 
 **Review Focus:**
@@ -380,7 +380,7 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 - Do research methodologies follow best practices?
 - Are performance optimization strategies effective?
 
-#### **MR Group 6: API Documentation & References** (9 files)
+#### **PR Group 6: API Documentation & References** (9 files)
 **Priority**: Medium - Important for developers
 
 **Review Focus:**
@@ -430,9 +430,9 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 ### **Review Process Steps**
 
 #### **Step 1: Pre-Review Preparation**
-1. **Review the MR group structure** and understand file relationships
+1. **Review the PR group structure** and understand file relationships
 2. **Set up local build environment** to test documentation
-3. **Review the review criteria** and checklist for the specific MR group
+3. **Review the review criteria** and checklist for the specific PR group
 4. **Identify key stakeholders** who should review specific content
 
 #### **Step 2: Content Review**
@@ -453,26 +453,26 @@ This outline provides a structured approach for reviewing the NeMo RL documentat
 1. **Verify all critical issues are resolved**
 2. **Confirm build system works correctly**
 3. **Test navigation and user experience**
-4. **Approve MR when all criteria are met**
+4. **Approve PR when all criteria are met**
 
 ### **Review Timeline**
 
 #### **Week 1: High Priority Groups**
-- **MR Group 1** (Core Setup) - 2 days
-- **MR Group 2** (Training Algorithms) - 3 days
+- **PR Group 1** (Core Setup) - 2 days
+- **PR Group 2** (Training Algorithms) - 3 days
 
 #### **Week 2: Medium Priority Groups**
-- **MR Group 3** (Model Development) - 2 days
-- **MR Group 4** (Core Architecture) - 2 days
-- **MR Group 5** (Advanced Performance) - 1 day
+- **PR Group 3** (Model Development) - 2 days
+- **PR Group 4** (Core Architecture) - 2 days
+- **PR Group 5** (Advanced Performance) - 1 day
 
 #### **Week 3: Final Groups**
-- **MR Group 6** (API Documentation) - 2 days
+- **PR Group 6** (API Documentation) - 2 days
 - **Cross-cutting review** - 3 days
 
 ### **Review Deliverables**
 
-#### **For Each MR Group:**
+#### **For Each PR Group:**
 - [ ] **Review report** with findings and recommendations
 - [ ] **Issue list** with specific file paths and line numbers
 - [ ] **Priority matrix** for addressing issues

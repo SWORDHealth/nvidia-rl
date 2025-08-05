@@ -31,7 +31,7 @@ This document outlines the organizational and content revisions made to the NeMo
 
 ## Executive Summary
 
-The NeMo RL documentation has undergone a **comprehensive transformation** from a basic flat structure with **25 files** to a sophisticated hierarchical system with **166+ files** (excluding 81 auto-generated API files). This represents a **564% increase** in documentation coverage and a complete modernization of the user experience.
+The NeMo RL documentation has undergone a **comprehensive transformation** from a basic flat structure with **25 files** to a robushierarchical system with **80+ files** (excluding auto-generated API files). This represents a **220% increase** in documentation coverage and a complete modernization of the user experience.
 
 ### **Key Achievements:**
 - ✅ **Complete organizational restructuring** with logical sections and clear navigation

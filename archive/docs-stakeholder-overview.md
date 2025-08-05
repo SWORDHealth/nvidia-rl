@@ -2,13 +2,15 @@
 
 ## Executive Summary
 
-The NeMo RL documentation has undergone a **comprehensive transformation** that positions the project for broader adoption and professional credibility. This transformation represents a **564% increase** in documentation coverage, moving from a basic developer-focused structure to a comprehensive, user-centric documentation ecosystem.
+As part of the proposed NeMo RL refactor project, the documentation has been significantly restructured—from a simple flat layout of approximately 25 files to a robust hierarchical system comprising over 80 files (excluding auto-generated API files). This revision reflects a 220% increase in coverage and a meaningful upgrade to the overall user experience.
+
+This document outlines the key changes, improvements, and expected business impact of the new documentation structure, providing a comprehensive overview for stakeholders.
 
 ## Key Metrics
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| **Total Files** | 25 | 166+ | 564% increase |
+| **Total Files** | 25 | 80+ | 220% increase |
 | **Main Sections** | 1 flat structure | 8 organized sections | 8x better organization |
 | **User Personas Supported** | Developers only | 4+ personas | Comprehensive coverage |
 | **Learning Paths** | None | 3 structured paths | Clear progression |

@@ -18,7 +18,7 @@ This document provides a comprehensive comparison between the current `docs/` st
 
 The documentation has undergone a **major transformation** from a flat, developer-focused structure to a comprehensive, user-centric documentation system. Key improvements include:
 
-- **📈 400%+ increase** in documentation files (from ~25 to 100+ files)
+- **📈 220%+ increase** in documentation files -from ~25 to 80+ files (excluding auto-generated API files)
 - **🎯 User-centric organization** with clear learning paths and personas
 - **📚 Comprehensive coverage** spanning from beginner tutorials to advanced research
 - **🔧 Enhanced navigation** with landing pages and cross-references
