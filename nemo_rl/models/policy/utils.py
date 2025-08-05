@@ -35,8 +35,8 @@ def apply_top_k_top_p(
 
     Args:
         logits: Input logits tensor of shape [batch_size, seq_len, vocab_size]
-        top_k: Top-k sampling parameter.
-        top_p: Top-p (nucleus) sampling parameter.
+        top_k: Top-k sampling parameter. Set to -1 to consider all tokens.
+        top_p: Top-p (nucleus) sampling parameter. Must be in (0, 1]. Set to 1 to consider all tokens.
 
     Returns:
         Filtered logits with sampling parameters applied
@@ -50,7 +50,7 @@ def apply_top_k_top_p(
     # Apply top-p (requires sorting)
     logits_sort, logits_idx = logits.sort(dim=-1, descending=False)
 
-    if top_k is not None and top_k > 0:
+    if top_k is not None and top_k != -1:
         # Apply top-k first
         top_k_index = logits_sort.size(-1) - top_k
         # Get all the top_k values - need to broadcast the index across all dimensions
@@ -68,14 +68,8 @@ def apply_top_k_top_p(
     probs_sort = logits_sort.softmax(dim=-1)
     probs_sum = torch.cumsum(probs_sort, dim=-1)
     top_p_mask = probs_sum <= 1 - top_p
-    # at least one - but for p=0.0, we want exactly one
-    if top_p == 0.0:
-        # Keep only the highest probability token
-        top_p_mask = torch.ones_like(top_p_mask, dtype=torch.bool)
-        top_p_mask[..., 0] = False  # Keep only the first (highest prob) token
-    else:
-        # at least one
-        top_p_mask[..., -1] = False
+    # at least one
+    top_p_mask[..., -1] = False
     logits_sort.masked_fill_(top_p_mask, -float("inf"))
 
     # Re-sort the probabilities
