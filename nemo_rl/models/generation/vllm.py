@@ -493,6 +493,7 @@ class VllmGenerationWorker:
 
             prompts.append({"prompt_token_ids": token_ids})
 
+        print(f"My LLM is generating {len(prompts)} at once")
         # Generate outputs
         assert self.llm is not None, (
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
