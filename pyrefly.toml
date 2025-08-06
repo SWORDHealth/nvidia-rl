@@ -98,6 +98,7 @@ project-includes = [
     "nemo_rl/models/policy/__init__.py",
     "nemo_rl/models/policy/interfaces.py",
     "nemo_rl/models/policy/utils.py",
+    "nemo_rl/tron/__init__.py",
     "nemo_rl/utils/__init__.py",
     "nemo_rl/utils/checkpoint.py",
     "nemo_rl/utils/config.py",
