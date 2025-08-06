@@ -76,16 +76,32 @@ class TRTLLMGenerationWorker:
         )
 
         self.llm = LLM(**llm_kwargs)
-        print("TRTLLM init success")
 
     def post_init(self):
         pass
 
     def report_device_id(self) -> list[str]:
         list_of_worker_results = self.llm.collective_rpc("report_device_id")
-        print(f"{list_of_worker_results=}")
-        assert list_of_worker_results[0] != 0
         return cast(list[str], list_of_worker_results)
+
+    def prepare_refit_info(self, state_dict_info: dict[str, Any]) -> None:
+        pass
+
+    def update_weights_from_ipc_handles(self, ipc_handles: dict[str, Any]) -> bool:
+        # fail here, better to put it to an extension worker
+        try:
+            self.llm.collective_rpc("update_weights_from_ipc_handles", (ipc_handles, ))
+            return True
+        except Exception as e:
+            print(f"Error during update weights: {e}")
+            return False
+
+    def sleep(self):
+        self.llm.collective_rpc("reset_prefix_cache")
+        # self.llm.collective_rpc("sleep")
+
+    def wake_up(self, **kwargs):
+        pass
 
     def generate(
         self, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False
