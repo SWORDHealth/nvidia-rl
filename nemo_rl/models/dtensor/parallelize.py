@@ -634,6 +634,7 @@ def get_logprobs_from_vocab_parallel_logits(
             with shape [batch_size, seq_len].
         seq_index (Optional[torch.Tensor]): Sequence index for the input IDs,
             with shape [sequence_length].
+        chunk_size (Optional[int]): Sequence dimension chunk size for computing log probabilities.
 
     Returns:
         torch.Tensor: Log probabilities for the given input IDs.

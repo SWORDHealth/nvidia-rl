@@ -283,6 +283,7 @@ def dtensor_from_parallel_logits_to_logprobs(
         inference_only (bool, optional): If True, tensors won't be saved for backward pass. Defaults to False.
         seq_index (Optional[torch.Tensor]): Sequence index tensor with shape [seq_len].
             It is only provided for cp sharded logits. It represents how tensor is sharded across the sequence dimension.
+        chunk_size (Optional[int]): Sequence dimension chunk size for computing the log probabilities.
 
     Returns:
         torch.Tensor: Log probabilities tensor with shape [batch_size, seq_len-1].
@@ -366,6 +367,7 @@ def from_parallel_logits_to_logprobs(
         tp_group (torch.distributed.ProcessGroup): Process group for distributed communication.
         inference_only (bool, optional): If True, tensors won't be saved for backward pass. Defaults to False.
         cp_group (torch.distributed.ProcessGroup, optional): Context parallelism process group. Defaults to None.
+        chunk_size (int, optional): Sequence dimension chunk size for computing the log probabilities.
 
     Returns:
         torch.Tensor: Log probabilities tensor with shape [batch_size, seq_len-1].
