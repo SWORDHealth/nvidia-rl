@@ -49,8 +49,6 @@ policy:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
     context_parallel_size: 1
-    # NB(peter): AssertionError: Sequence Packing must be enabled to use Context Parallelism with MCore
-    # context_parallel_size: 2
     expert_tensor_parallel_size: 1
     expert_model_parallel_size: 8
     sequence_parallel: True
