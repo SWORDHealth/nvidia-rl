@@ -130,30 +130,6 @@ def get_multimodal_keys_from_processor(processor) -> list[str]:
     all_keys.difference_update(set(processor.tokenizer.model_input_names))
     return list(all_keys)
 
-
-def reroute_processor_model_name_patch(model_name: str) -> str:
-    '''
-    for certain models, the processor is configured incorrectly, so we use another processor that is safer
-
-    First, we try to match the model name to an exact match in the registry.
-    If not found, we try to match the model name to a regex in the registry.
-    '''
-    PROCESSOR_REROUTE_REGEX_REGISTRY = {}
-    PROCESSOR_REROUTE_EXACT_REGISTRY = {}
-    regex_registry = PROCESSOR_REROUTE_REGEX_REGISTRY
-
-    # Qwen2-VL models have a processor that produces empty strings in `apply_chat_template` function
-    regex_registry.update({'qwen/qwen2-vl-*': 'Qwen/Qwen2.5-VL-3B-Instruct'})
-
-    if model_name.lower() in PROCESSOR_REROUTE_EXACT_REGISTRY:
-        print(f"Rerouting processor for {model_name} to {PROCESSOR_REROUTE_EXACT_REGISTRY[model_name.lower()]}")
-        return PROCESSOR_REROUTE_EXACT_REGISTRY[model_name.lower()]
-
-    for regex, replacement in regex_registry.items():
-        if re.match(regex, model_name.lower()):
-            print(f"Rerouting processor for {model_name} to {replacement}")
-            return replacement
-    return model_name
         
 def get_dim_to_pack_along(processor, key: str) -> int:
     '''

@@ -49,7 +49,6 @@ from nemo_rl.utils.config import load_config, parse_hydra_overrides
 from nemo_rl.utils.logger import get_next_experiment_dir
 from nemo_rl.data.multimodal_utils import PackedMultimodalDataItem, \
     get_multimodal_keys_from_processor,  \
-    reroute_processor_model_name_patch, \
     get_dim_to_pack_along
 from nemo_rl.algorithms.utils import get_tokenizer
 
@@ -202,6 +201,8 @@ def hf_data_processor(
                 : min(4, max_seq_length // len(message_log))
             ]
         loss_multiplier = 0.0
+        raise NotImplementedError("Sequence length is too long, please use a shorter sequence length")
+        
 
     output: DatumSpec = {
         "message_log": message_log,
@@ -329,7 +330,6 @@ def main() -> None:
     init_ray()
 
     # init processor
-    config["policy"]["tokenizer"]["name"] = reroute_processor_model_name_patch(config['policy']['tokenizer']['name'])
     processor = get_tokenizer(config["policy"]["tokenizer"])
     tokenizer = processor.tokenizer
 

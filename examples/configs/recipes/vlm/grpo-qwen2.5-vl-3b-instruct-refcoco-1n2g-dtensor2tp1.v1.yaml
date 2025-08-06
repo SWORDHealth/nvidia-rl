@@ -11,6 +11,7 @@ checkpointing:
   keep_top_k: 3
   save_period: 10
 
+policy:
   generation:
     backend: "vllm"
     max_new_tokens: 1024
