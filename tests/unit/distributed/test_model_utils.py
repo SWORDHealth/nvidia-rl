@@ -750,7 +750,9 @@ def test_distributed_logprob_all_tests(
         )
 
         # Test 1: Combined Forward and Backward pass
-        print(f"\n=== Testing TP={tp_size} ChunkSize={chunk_size}: Forward & Backward Pass ===")
+        print(
+            f"\n=== Testing TP={tp_size} ChunkSize={chunk_size}: Forward & Backward Pass ==="
+        )
         futures = worker_group.run_all_workers_single_data(
             "test_distributed_logprob_forward_and_backward"
         )
