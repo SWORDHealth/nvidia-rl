@@ -724,7 +724,7 @@ def register_distributed_logprob_test_actor():
     ],
 )
 def test_distributed_logprob_all_tests(
-    register_distributed_logprob_test_actor, tp_size
+    register_distributed_logprob_test_actor, tp_size, chunk_size
 ):
     """Test all DistributedLogprob functionality for a given TP size."""
     # Skip if not enough GPUs
@@ -740,7 +740,7 @@ def test_distributed_logprob_all_tests(
 
         # Create sharding for TP
         sharding = NamedSharding(layout=list(range(tp_size)), names=["tp"])
-        builder = RayWorkerBuilder(actor_fqn, tp_size)
+        builder = RayWorkerBuilder(actor_fqn, tp_size, chunk_size)
 
         worker_group = RayWorkerGroup(
             cluster=cluster,
@@ -750,7 +750,7 @@ def test_distributed_logprob_all_tests(
         )
 
         # Test 1: Combined Forward and Backward pass
-        print(f"\n=== Testing TP={tp_size}: Forward & Backward Pass ===")
+        print(f"\n=== Testing TP={tp_size} ChunkSize={chunk_size}: Forward & Backward Pass ===")
         futures = worker_group.run_all_workers_single_data(
             "test_distributed_logprob_forward_and_backward"
         )
@@ -765,7 +765,7 @@ def test_distributed_logprob_all_tests(
                 )
 
         # Test 2: Log softmax function
-        print(f"\n=== Testing TP={tp_size}: Log Softmax ===")
+        print(f"\n=== Testing TP={tp_size} ChunkSize={chunk_size}: Log Softmax ===")
         futures = worker_group.run_all_workers_single_data(
             "test_distributed_log_softmax"
         )
@@ -778,7 +778,7 @@ def test_distributed_logprob_all_tests(
 
         # Test 3: Edge cases (only for TP=2)
         if tp_size == 2:
-            print(f"\n=== Testing TP={tp_size}: Edge Cases ===")
+            print(f"\n=== Testing TP={tp_size} ChunkSize={chunk_size}: Edge Cases ===")
             futures = worker_group.run_all_workers_single_data("test_edge_cases")
             results = ray.get(futures)
             print("Edge cases test completed successfully")
