@@ -714,9 +714,15 @@ def register_distributed_logprob_test_actor():
             )
 
 
-@pytest.mark.parametrize("tp_size, chunk_size", [
-    (1, None), (2, None), (1, 4), (2, 4),
-])
+@pytest.mark.parametrize(
+    "tp_size, chunk_size",
+    [
+        (1, None),
+        (2, None),
+        (1, 4),
+        (2, 4),
+    ],
+)
 def test_distributed_logprob_all_tests(
     register_distributed_logprob_test_actor, tp_size
 ):
