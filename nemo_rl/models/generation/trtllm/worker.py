@@ -12,13 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-from typing import Any, NotRequired, Optional, TypedDict
+from typing import Any, NotRequired, Optional, TypedDict, cast
 
 import ray
 
+from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.distributed.worker_group_utils import get_nsight_config_if_pattern_matches
-from nemo_rl.models.generation.interfaces import GenerationConfig
+from nemo_rl.models.generation.interfaces import (
+    GenerationConfig,
+    GenerationDatumSpec,
+    GenerationOutputSpec,
+)
 
 
 class TRTLLMSpecificArgs(TypedDict):
@@ -44,42 +48,59 @@ class TRTLLMGenerationWorker:
     def __init__(
         self,
         config: TRTLLMConfig,
-        bundle_indices: Optional[list[int]] = None,
-        fraction_of_gpus: float = 1.0,
-        seed: Optional[int] = None,
+        bundle_indices: Optional[list[int]] = None,  # not used now
+        fraction_of_gpus: float = 1.0,  # not used now
+        seed: Optional[int] = None,  # not used now
     ):
-        print(f"{os.environ["PATH"]=}")
-        print(f"{os.environ["CUDA_VISIBLE_DEVICES"]=}")
+        """Initialize a TRTLLM worker for distributed inference.
 
+        Args:
+            config: Configuration dictionary for the policy
+            bundle_indices: List of local bundle indices within a node for parallelism.
+                          Only needed for the first worker in each tied worker group.
+            fraction_of_gpus: Fraction of GPUs to use for this worker
+            seed: Random seed for initialization
+        """
         from tensorrt_llm import LLM
         from tensorrt_llm.llmapi import KvCacheConfig
 
         kv_cache_config = KvCacheConfig(free_gpu_memory_fraction=0.8)
 
-        config = {
-            "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-            "executor_type": "ray",
-            "kv_cache_config": kv_cache_config,
-            "tensor_parallel_size": 1,
-            "pipeline_parallel_size": 1,
-            "moe_expert_parallel_size": None,
-        }
+        llm_kwargs = dict(
+            model=config["model_name"],
+            executor_type="ray",
+            kv_cache_config=kv_cache_config,
+            tensor_parallel_size=1,
+            pipeline_parallel_size=1,
+            moe_expert_parallel_size=None,
+        )
 
-        prompts = [
-            "Hello, my name is",
-            "The president of the United States is",
-            "The capital of France is",
-            "The future of AI is",
-        ]
-
-        llm = LLM(**config)
-        llm_ret = llm.generate(prompts)
-        outputs = []
-        for index, r in enumerate(llm_ret):
-            outputs.append(prompts[index] + " " + r.outputs[0].text)
-
-        print(f"{outputs=}")
+        self.llm = LLM(**llm_kwargs)
         print("TRTLLM init success")
 
     def post_init(self):
         pass
+
+    def report_device_id(self) -> list[str]:
+        list_of_worker_results = self.llm.collective_rpc("report_device_id")
+        print(f"{list_of_worker_results=}")
+        assert list_of_worker_results[0] != 0
+        return cast(list[str], list_of_worker_results)
+
+    def generate(
+        self, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False
+    ) -> BatchedDataDict[GenerationOutputSpec]:
+        pass
+        # prompts = [
+        #     "Hello, my name is",
+        #     "The president of the United States is",
+        #     "The capital of France is",
+        #     "The future of AI is",
+        # ]
+
+        # llm_ret = self.llm.generate(prompts)
+        # outputs = []
+        # for index, r in enumerate(llm_ret):
+        #     outputs.append(prompts[index] + " " + r.outputs[0].text)
+
+        # print(f"{outputs=}")
