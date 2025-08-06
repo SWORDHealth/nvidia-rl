@@ -384,7 +384,7 @@ def from_parallel_logits_to_logprobs(
     target = _get_tokens_on_this_cp_rank(target, cp_rank, cp_size, seq_dim=1)
 
     if chunk_size is not None:
-        logprobs: torch.Tensor = DistributedLogprob.apply(  # type: ignore
+        logprobs: torch.Tensor = ChunkedDistributedLogprob.apply(  # type: ignore
             vocab_parallel_logits,
             target,
             vocab_start_index,
