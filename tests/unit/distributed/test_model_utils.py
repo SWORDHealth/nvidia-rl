@@ -18,6 +18,7 @@ import ray
 import torch
 
 from nemo_rl.distributed.model_utils import (
+    ChunkedDistributedLogprob,
     DistributedLogprob,
     _compute_distributed_log_softmax,
     _get_tokens_on_this_cp_rank,
@@ -428,8 +429,9 @@ def test_allgather_cp_sharded_tensor(register_allgather_cp_test_actor, cp_size):
 
 @ray.remote(num_gpus=1)
 class DistributedLogprobTestActor:
-    def __init__(self, tp_size):
+    def __init__(self, tp_size, chunk_size):
         self.tp_size = tp_size
+        self.chunk_size = chunk_size
         self.env_vars = dict(os.environ)
         torch.distributed.init_process_group(backend="nccl")
         self.tp_group = torch.distributed.new_group(ranks=list(range(tp_size)))
@@ -455,6 +457,7 @@ class DistributedLogprobTestActor:
         seq_len = 8
         full_vocab_size = 1024
         vocab_part_size = full_vocab_size // self.tp_size
+        chunk_size = self.chunk_size
 
         # Calculate vocab partition for this rank
         vocab_start_index = rank * vocab_part_size
@@ -490,14 +493,25 @@ class DistributedLogprobTestActor:
         )
 
         # Compute using DistributedLogprob (forward only first)
-        distributed_log_probs_inference = DistributedLogprob.apply(
-            vocab_parallel_logits.clone().detach(),  # Clone to avoid affecting backward test
-            target,
-            vocab_start_index,
-            vocab_end_index,
-            self.tp_group,
-            True,  # inference_only=True for forward test
-        )
+        if chunk_size is not None:
+            distributed_log_probs_inference = ChunkedDistributedLogprob.apply(
+                vocab_parallel_logits.clone().detach(),  # Clone to avoid affecting backward test
+                target,
+                vocab_start_index,
+                vocab_end_index,
+                chunk_size,
+                self.tp_group,
+                True,  # inference_only=True for forward test
+            )
+        else:
+            distributed_log_probs_inference = DistributedLogprob.apply(
+                vocab_parallel_logits.clone().detach(),  # Clone to avoid affecting backward test
+                target,
+                vocab_start_index,
+                vocab_end_index,
+                self.tp_group,
+                True,  # inference_only=True for forward test
+            )
 
         # Compare forward results
         torch.testing.assert_close(
@@ -700,7 +714,9 @@ def register_distributed_logprob_test_actor():
             )
 
 
-@pytest.mark.parametrize("tp_size", [1, 2])
+@pytest.mark.parametrize("tp_size, chunk_size", [
+    (1, None), (2, None), (1, 4), (2, 4),
+])
 def test_distributed_logprob_all_tests(
     register_distributed_logprob_test_actor, tp_size
 ):
