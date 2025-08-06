@@ -124,6 +124,7 @@ from nemo_rl.models.policy.utils import (
     get_megatron_checkpoint_dir,
     get_runtime_env_for_policy_worker,
 )
+from nemo_rl.tron.model import get_model_from_config_no_float32
 
 TokenizerType = TypeVar("TokenizerType", bound=PreTrainedTokenizerBase)
 
@@ -209,7 +210,7 @@ def setup_megatron_model(
         model_post_init_fns.append(re_enable_float32_expert_bias)
 
     # Model, optimizer, and learning rate.
-    model = get_model_from_config(
+    model = get_model_from_config_no_float32(
         cfg.model_config,
         cfg.ddp_config,
         use_torch_fsdp2=cfg.dist_config.use_torch_fsdp2,
@@ -645,7 +646,7 @@ class MegatronPolicyWorker:
             ref_state = GlobalState()
             ref_state.cfg = ref_megatron_cfg
 
-            reference_model = get_model_from_config(
+            reference_model = get_model_from_config_no_float32(
                 self.megatron_cfg.model_config,
                 self.megatron_cfg.ddp_config,
                 use_torch_fsdp2=self.megatron_cfg.dist_config.use_torch_fsdp2,
