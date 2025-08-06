@@ -94,20 +94,21 @@ class VllmGenerationWorker:
         if guided_decoding_config is None:
             return None
 
-        if guided_decoding_config["mode"] == "json":
-            return GuidedDecodingParams(json=guided_decoding_config["json"])
-        elif guided_decoding_config["mode"] == "regex":
-            return GuidedDecodingParams(regex=guided_decoding_config["regex"])
-        elif guided_decoding_config["mode"] == "choice":
-            return GuidedDecodingParams(choice=guided_decoding_config["choice"])
-        elif guided_decoding_config["mode"] == "grammar":
-            return GuidedDecodingParams(grammar=guided_decoding_config["grammar"])
-        elif guided_decoding_config["mode"] == "json_object":
-            return GuidedDecodingParams(json_object=True)
-        else:
-            raise ValueError(
-                f"Unsupported guided decoding mode: {guided_decoding_config['mode']}"
-            )
+        match guided_decoding_config["mode"]:
+            case "json":
+                return GuidedDecodingParams(json=guided_decoding_config["json"])
+            case "regex":
+                return GuidedDecodingParams(regex=guided_decoding_config["regex"])
+            case "choice":
+                return GuidedDecodingParams(choice=guided_decoding_config["choice"])
+            case "grammar":
+                return GuidedDecodingParams(grammar=guided_decoding_config["grammar"])
+            case "json_object":
+                return GuidedDecodingParams(json_object=True)
+            case _:
+                raise ValueError(
+                    f"Unsupported guided decoding mode: {guided_decoding_config['mode']}"
+                )
 
     @staticmethod
     def configure_worker(

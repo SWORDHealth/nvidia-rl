@@ -43,7 +43,7 @@ basic_vllm_test_config: VllmConfig = {
         "name": model_name,
     },
     "dtype": "bfloat16",
-    "max_new_tokens": 16,  # Small number of tokens for testing
+    "max_new_tokens": 5,  # Small number of tokens for testing
     "temperature": 0.8,
     "top_p": 1.0,
     "top_k": None,
@@ -1669,76 +1669,97 @@ def test_vllm_megatron_weight_update_with_packing(cluster, test_input_data):
             vllm_generation.shutdown()
 
 
-def test_vllm_guided_decoding(policy, tokenizer):
+def test_vllm_guided_decoding(cluster, tokenizer):
     """Test vLLM generation with different guided decoding modes."""
 
-    def get_test_input_data(prompt: str):
-        tokenized_data = tokenizer(
-            [prompt],
-            padding=True,
-            truncation=False,
-            return_tensors="pt",
-            padding_side="right",
+    try:
+        # construct VllmGeneration policy with more max tokens
+        vllm_config = deepcopy(basic_vllm_test_config)
+        vllm_config["max_new_tokens"] = 16
+        vllm_config["vllm_cfg"]["async_engine"] = False
+        vllm_config = configure_generation_config(vllm_config, tokenizer)
+        vllm_policy = VllmGeneration(cluster, vllm_config)
+        # vllm_policy.finish_generation()
+
+        def get_test_input_data(prompt: str):
+            tokenized_data = tokenizer(
+                [prompt],
+                padding=True,
+                truncation=False,
+                return_tensors="pt",
+                padding_side="right",
+            )
+
+            input_lengths = tokenized_data["attention_mask"].sum(dim=1).to(torch.int32)
+            test_input_data = BatchedDataDict(
+                {
+                    "input_ids": tokenized_data["input_ids"],
+                    "input_lengths": input_lengths,
+                }
+            )
+            return test_input_data
+
+        # Test 1: Regex guided decoding
+        print("Testing regex guided decoding...")
+        regex_guided_config: GuidedDecodingConfig = {
+            "mode": "regex",
+            "regex": r"\d{3}-\d{3}-\d{4}",  # Phone number pattern
+        }
+
+        prompt1 = "Give me a phone number: "
+        input_data = get_test_input_data(prompt1)
+        regex_outputs = vllm_policy.generate(
+            input_data, greedy=True, guided_decoding_config=regex_guided_config
         )
 
-        input_lengths = tokenized_data["attention_mask"].sum(dim=1).to(torch.int32)
-        test_input_data = BatchedDataDict(
-            {
-                "input_ids": tokenized_data["input_ids"],
-                "input_lengths": input_lengths,
-            }
+        # Validate regex outputs
+        assert "output_ids" in regex_outputs, (
+            "output_ids not found in regex guided generation output"
         )
-        return test_input_data
+        assert regex_outputs["output_ids"].shape[0] == len(input_data["input_ids"]), (
+            "Wrong batch size in regex guided output"
+        )
 
-    regex_guided_config: GuidedDecodingConfig = {
-        "mode": "regex",
-        "regex": r"\d{3}-\d{3}-\d{4}",  # Phone number pattern
-    }
+        regex_generated_texts = tokenizer.batch_decode(
+            regex_outputs["output_ids"], skip_special_tokens=True
+        )
+        output_only = regex_generated_texts[0].split(prompt1)[1]
+        assert re.match(regex_guided_config["regex"], output_only), (
+            "Output should match the regex pattern"
+        )
 
-    prompt1 = "Give me a phone number: "
-    input_data = get_test_input_data(prompt1)
-    regex_outputs = policy.generate(
-        input_data, greedy=True, guided_decoding_config=regex_guided_config
-    )
+        # Test 2: Choice guided decoding
+        print("Testing choice guided decoding...")
+        choices = ["yes", "no", "maybe"]
 
-    # Validate regex outputs
-    assert "output_ids" in regex_outputs, (
-        "output_ids not found in regex guided generation output"
-    )
-    assert regex_outputs["output_ids"].shape[0] == len(input_data["input_ids"]), (
-        "Wrong batch size in regex guided output"
-    )
+        choice_guided_config: GuidedDecodingConfig = {
+            "mode": "choice",
+            "choice": choices,
+        }
 
-    regex_generated_texts = tokenizer.batch_decode(
-        regex_outputs["output_ids"], skip_special_tokens=True
-    )
-    output_only = regex_generated_texts[0].split(prompt1)[1]
-    assert re.match(regex_guided_config["regex"], output_only), (
-        "Output should match the regex pattern"
-    )
+        prompt2 = "Should I go to the gym today? (yes/no/maybe): "
+        input_data = get_test_input_data(prompt2)
+        choice_outputs = vllm_policy.generate(
+            input_data, greedy=True, guided_decoding_config=choice_guided_config
+        )
 
-    # Test 3: Choice guided decoding
-    print("Testing choice guided decoding...")
-    choices = ["yes", "no", "maybe"]
+        # Validate choice outputs
+        assert "output_ids" in choice_outputs, (
+            "output_ids not found in choice guided generation output"
+        )
+        assert choice_outputs["output_ids"].shape[0] == len(input_data["input_ids"]), (
+            "Wrong batch size in choice guided output"
+        )
 
-    choice_guided_config: GuidedDecodingConfig = {"mode": "choice", "choice": choices}
+        choice_generated_texts = tokenizer.batch_decode(
+            choice_outputs["output_ids"], skip_special_tokens=True
+        )
+        output_only = choice_generated_texts[0].split(prompt2)[1]
+        assert output_only in choices, "Output should be one of the choices"
 
-    prompt2 = "Should I go to the gym today? (yes/no/maybe): "
-    input_data = get_test_input_data(prompt2)
-    choice_outputs = policy.generate(
-        input_data, greedy=True, guided_decoding_config=choice_guided_config
-    )
+    finally:
+        vllm_policy.shutdown()
+        import gc
 
-    # Validate choice outputs
-    assert "output_ids" in choice_outputs, (
-        "output_ids not found in choice guided generation output"
-    )
-    assert choice_outputs["output_ids"].shape[0] == len(input_data["input_ids"]), (
-        "Wrong batch size in choice guided output"
-    )
-
-    choice_generated_texts = tokenizer.batch_decode(
-        choice_outputs["output_ids"], skip_special_tokens=True
-    )
-    output_only = choice_generated_texts[0].split(prompt2)[1]
-    assert output_only in choices, "Output should be one of the choices"
+        gc.collect()
+        torch.cuda.empty_cache()

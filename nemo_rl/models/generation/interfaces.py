@@ -112,22 +112,25 @@ class ColocationConfig(TypedDict):
 class GuidedDecodingConfig(TypedDict):
     """Configuration for guided decoding.
 
-    This supports the following modes:
-      - json: the output must be a JSON object matching the provided schema
-      - regex: the output must match the provided regex
-      - choice: the output must be one of the provided choices
-      - grammar: the output must be a valid grammar
-      - json_object: the output must be some JSON object
+    `mode`: The guided decoding mode, can be one of `json`, `regex`, `choice`, `grammar`, or `json_object`.
+
+    For the selected mode, its corresponding field must be provided:
+
+      - `json`: the output must be a JSON object matching the provided schema
+      - `regex`: the output must match the provided regex
+      - `choice`: the output must be one of the provided choices
+      - `grammar`: the output must be a valid grammar
+      - `json_object`: the output must be some JSON object
 
     This class is intentially similar to the GuidedDecodingParams class in vLLM,
     however, we do not want to inject that dependency here.
     """
 
     mode: str
-    json: Optional[Union[str, dict]]
-    regex: Optional[str]
-    choice: Optional[list[str]]
-    grammar: Optional[str]
+    json: NotRequired[Union[str, dict]]
+    regex: NotRequired[str]
+    choice: NotRequired[list[str]]
+    grammar: NotRequired[str]
 
 
 class GenerationConfig(TypedDict):
