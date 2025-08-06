@@ -210,7 +210,11 @@ def setup_megatron_model(
         model_post_init_fns.append(re_enable_float32_expert_bias)
 
     # Model, optimizer, and learning rate.
-    model = get_model_from_config_no_float32(
+    if policy_cfg["megatron_cfg"].get("deferred_fp32_logits", None):
+        model_builder = get_model_from_config_no_float32
+    else:
+        model_builder = get_model_from_config
+    model = model_builder(
         cfg.model_config,
         cfg.ddp_config,
         use_torch_fsdp2=cfg.dist_config.use_torch_fsdp2,
