@@ -124,6 +124,7 @@ from nemo_rl.models.policy.utils import (
     get_megatron_checkpoint_dir,
     get_runtime_env_for_policy_worker,
 )
+from nemo_rl.tron.model import get_model_from_config_no_float32
 
 TokenizerType = TypeVar("TokenizerType", bound=PreTrainedTokenizerBase)
 
@@ -209,7 +210,7 @@ def setup_megatron_model(
         model_post_init_fns.append(re_enable_float32_expert_bias)
 
     # Model, optimizer, and learning rate.
-    model = get_model_from_config(
+    model = get_model_from_config_no_float32(
         cfg.model_config,
         cfg.ddp_config,
         use_torch_fsdp2=cfg.dist_config.use_torch_fsdp2,
@@ -645,7 +646,7 @@ class MegatronPolicyWorker:
             ref_state = GlobalState()
             ref_state.cfg = ref_megatron_cfg
 
-            reference_model = get_model_from_config(
+            reference_model = get_model_from_config_no_float32(
                 self.megatron_cfg.model_config,
                 self.megatron_cfg.ddp_config,
                 use_torch_fsdp2=self.megatron_cfg.dist_config.use_torch_fsdp2,
@@ -1088,6 +1089,7 @@ class MegatronPolicyWorker:
                 stc = time.time()
                 tp_grp = get_tensor_model_parallel_group()
                 tp_rank = get_tensor_model_parallel_rank()
+                logprob_chunk_size = self.cfg.get("logprob_chunk_size", None)
                 if self.cfg["sequence_packing"]["enabled"]:
                     token_logprobs = from_parallel_logits_to_logprobs_packed_sequences(
                         output_tensor,
@@ -1099,6 +1101,8 @@ class MegatronPolicyWorker:
                         group=tp_grp,
                         inference_only=True,
                         cp_group=get_context_parallel_group(),
+                        # TODO(pjin): chunked logprob not implemented yet w/ seq packing.
+                        # chunk_size=logprob_chunk_size,
                     )
                 else:
                     token_logprobs = from_parallel_logits_to_logprobs(
@@ -1108,6 +1112,7 @@ class MegatronPolicyWorker:
                         vocab_end_index=(tp_rank + 1) * output_tensor.shape[-1],
                         tp_group=tp_grp,
                         inference_only=True,
+                        chunk_size=logprob_chunk_size,
                     )
 
                 # Prepend 0 logprob for first token to maintain same sequence length as input
