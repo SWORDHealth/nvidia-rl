@@ -168,11 +168,21 @@ class RewardModelEnvironment(EnvironmentInterface):
         format_rewards = []
         for message_log in message_logs:
             assert message_log[-1]["role"] == "assistant"
-            # TODO: decide based on system
-            if "<think>" in message_log[-1]["content"] or "</think>" in message_log[-1]["content"]:
-                format_rewards.append(-3.0)
+            assert message_log[0]["role"] == "system"
+            if message_log[0]["content"] == "/no_think":
+                is_sys2 = False
+            elif message_log[0]["content"] == "/think":
+                is_sys2 = True
             else:
-                format_rewards.append(0)
+                raise ValueError("For now, set system to either `/think` or `/no_think`")
+            
+            format_reward = 0
+            if (not is_sys2) and ("<think>" in message_log[-1]["content"] or "</think>" in message_log[-1]["content"]):
+                format_reward = -3.0
+            elif is_sys2 and ("</think>" not in message_log[-1]["content"]):
+                format_reward = -3.0
+            
+            format_rewards.append(format_reward)
             processed_messages = []
             for msg in message_log:
                 print("yz debug; msg:", msg)

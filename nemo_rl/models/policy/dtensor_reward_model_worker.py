@@ -26,7 +26,7 @@ from torch.distributed.fsdp import (
     FSDPModule,
 )
 from torch.distributed.tensor import DTensor
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from transformers.integrations.accelerate import find_tied_parameters
 
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
@@ -45,6 +45,11 @@ from nemo_rl.models.policy.utils import (
 )
 
 
+def disable_dropout_in_model(model: torch.nn.Module) -> None:
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.p = 0
+    return model
 
 @ray.remote
 class DTensorRewardModelWorker:
@@ -139,19 +144,28 @@ class DTensorRewardModelWorker:
             reserved_before = torch.cuda.memory_reserved() / (1024**3)
             print(f"   GPU memory before loading: {allocated_before:.2f}GB allocated, {reserved_before:.2f}GB reserved")
         
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=self.dtype,
-            device_map="auto",  # Let transformers handle device placement
-            **sliding_window_overwrite(
-                model_name
-            ),  # due to https://github.com/huggingface/transformers/issues/38002
-        )
+        # self.model = AutoModelForCausalLM.from_pretrained(
+        #     model_name,
+        #     torch_dtype=self.dtype,
+        #     device_map="auto",  # Let transformers handle device placement
+        #     **sliding_window_overwrite(
+        #         model_name
+        #     ),  # due to https://github.com/huggingface/transformers/issues/38002
+        # )
         
         # Load tokenizer for the same model
         print(f"🔤 [Rank {rank}] Loading tokenizer for {model_name}...")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name, 
+            pad_token_id=self.tokenizer.pad_token_id, 
+            torch_dtype=torch.bfloat16, 
+            device_map="auto"
+        )
+
+        self.model = disable_dropout_in_model(self.model)
+
         # Only do DTensor setup if we're in distributed mode
         if use_distributed and world_size > 1:
             print(f"⚙️  Setting up DTensor for distributed training...")
@@ -276,18 +290,21 @@ class DTensorRewardModelWorker:
                     attention_mask_clone = copy.deepcopy(attention_mask)
                     
                     with torch.autocast(device_type=autocast_device, dtype=self.dtype):
-                        response_token_ids = self.model.generate(
-                            input_ids_clone,
-                            attention_mask=attention_mask_clone,
-                            max_new_tokens=1,
-                            return_dict_in_generate=True,
-                            output_scores=True,
-                            do_sample=False,
-                            pad_token_id=self.tokenizer.pad_token_id,
-                        )
+                        # response_token_ids = self.model.generate(
+                        #     input_ids_clone,
+                        #     attention_mask=attention_mask_clone,
+                        #     max_new_tokens=1,
+                        #     return_dict_in_generate=True,
+                        #     output_scores=True,
+                        #     do_sample=False,
+                        #     pad_token_id=self.tokenizer.pad_token_id,
+                        # )
                         
-                        # Extract reward from the first token's first logit
-                        reward = response_token_ids['scores'][0][0][0].item()
+                        # # Extract reward from the first token's first logit
+                        # reward = response_token_ids['scores'][0][0][0].item()
+
+                        reward = self.model(input_ids_clone, attention_mask=attention_mask_clone).logits[0][0].item()
+
                         batch_rewards.append(reward)
                         
                         # Show sample details for first few
