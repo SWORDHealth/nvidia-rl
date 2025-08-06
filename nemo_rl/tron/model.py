@@ -47,9 +47,9 @@ def get_model_from_config_no_float32(
         parallel_state.get_pipeline_model_parallel_world_size() > 1
         and parallel_state.get_virtual_pipeline_model_parallel_world_size() is not None
     ):
-        assert (
-            model_type != ModelType.encoder_and_decoder
-        ), "Interleaved schedule not supported for model with both encoder and decoder"
+        assert model_type != ModelType.encoder_and_decoder, (
+            "Interleaved schedule not supported for model with both encoder and decoder"
+        )
         model = []
         for i in range(parallel_state.get_virtual_pipeline_model_parallel_world_size()):
             parallel_state.set_virtual_pipeline_model_parallel_rank(i)
@@ -70,10 +70,14 @@ def get_model_from_config_no_float32(
             assert isinstance(model_config, T5Config)
             if parallel_state.get_pipeline_model_parallel_world_size() > 1:
                 rank = parallel_state.get_pipeline_model_parallel_rank()
-                first_decoder_rank = parallel_state.get_pipeline_model_parallel_decoder_start()
+                first_decoder_rank = (
+                    parallel_state.get_pipeline_model_parallel_decoder_start()
+                )
                 world_size = parallel_state.get_pipeline_model_parallel_world_size()
                 pre_process = rank == 0 or rank == first_decoder_rank
-                post_process = (rank == (first_decoder_rank - 1)) or (rank == (world_size - 1))
+                post_process = (rank == (first_decoder_rank - 1)) or (
+                    rank == (world_size - 1)
+                )
             model = model_config.configure_model(
                 tokenizer=None,
             )
@@ -94,7 +98,9 @@ def get_model_from_config_no_float32(
     # are set for all params so the optimizer can use them.
     for model_module in model:
         for param in model_module.parameters():
-            tensor_parallel.set_defaults_if_not_set_tensor_model_parallel_attributes(param)
+            tensor_parallel.set_defaults_if_not_set_tensor_model_parallel_attributes(
+                param
+            )
 
     # Print number of parameters.
     if parallel_state.get_data_parallel_rank() == 0:
@@ -102,7 +108,12 @@ def get_model_from_config_no_float32(
             " > number of parameters on (tensor, pipeline) model parallel rank ({}, {}): {}".format(
                 parallel_state.get_tensor_model_parallel_rank(),
                 parallel_state.get_pipeline_model_parallel_rank(),
-                sum([sum([p.nelement() for p in model_module.parameters()]) for model_module in model]),
+                sum(
+                    [
+                        sum([p.nelement() for p in model_module.parameters()])
+                        for model_module in model
+                    ]
+                ),
             ),
             flush=True,
         )
@@ -131,7 +142,9 @@ def get_model_from_config_no_float32(
                 fp8_meta = param._fp8_meta["scaling_fwd"]
                 fp8_meta_index = param._fp8_meta_index
                 if hasattr(param, "get_high_precision_init_val"):
-                    fp8_meta.amax_history[0][fp8_meta_index].copy_(param.get_high_precision_init_val().abs().max())
+                    fp8_meta.amax_history[0][fp8_meta_index].copy_(
+                        param.get_high_precision_init_val().abs().max()
+                    )
                 else:
                     fp8_meta.amax_history[0][fp8_meta_index] = 0
 
@@ -148,7 +161,8 @@ def get_model_from_config_no_float32(
                 module=model_chunk,
                 # Turn off bucketing for model_chunk 2 onwards, since communication for these
                 # model chunks is overlapped with compute anyway.
-                disable_bucketing=(model_chunk_idx > 0) or overlap_param_gather_with_optimizer_step,
+                disable_bucketing=(model_chunk_idx > 0)
+                or overlap_param_gather_with_optimizer_step,
             )
             for (model_chunk_idx, model_chunk) in enumerate(model)
         ]
@@ -161,4 +175,8 @@ def get_model_from_config_no_float32(
 
 
 def _get_model_type(model_config: GPTConfig | T5Config) -> ModelType:
-    return ModelType.encoder_and_decoder if isinstance(model_config, T5Config) else ModelType.encoder_or_decoder
+    return (
+        ModelType.encoder_and_decoder
+        if isinstance(model_config, T5Config)
+        else ModelType.encoder_or_decoder
+    )
