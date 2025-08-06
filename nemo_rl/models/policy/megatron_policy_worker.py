@@ -1088,6 +1088,7 @@ class MegatronPolicyWorker:
                 stc = time.time()
                 tp_grp = get_tensor_model_parallel_group()
                 tp_rank = get_tensor_model_parallel_rank()
+                logprob_chunk_size = self.cfg.get("logprob_chunk_size", None)
                 if self.cfg["sequence_packing"]["enabled"]:
                     token_logprobs = from_parallel_logits_to_logprobs_packed_sequences(
                         output_tensor,
@@ -1099,6 +1100,8 @@ class MegatronPolicyWorker:
                         group=tp_grp,
                         inference_only=True,
                         cp_group=get_context_parallel_group(),
+                        # TODO(pjin): chunked logprob not implemented yet w/ seq packing.
+                        # chunk_size=logprob_chunk_size,
                     )
                 else:
                     token_logprobs = from_parallel_logits_to_logprobs(
@@ -1108,6 +1111,7 @@ class MegatronPolicyWorker:
                         vocab_end_index=(tp_rank + 1) * output_tensor.shape[-1],
                         tp_group=tp_grp,
                         inference_only=True,
+                        chunk_size=logprob_chunk_size,
                     )
 
                 # Prepend 0 logprob for first token to maintain same sequence length as input
