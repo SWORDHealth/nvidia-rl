@@ -1105,8 +1105,7 @@ class MegatronPolicyWorker:
                         group=tp_grp,
                         inference_only=True,
                         cp_group=get_context_parallel_group(),
-                        # TODO(pjin): chunked logprob not implemented yet w/ seq packing.
-                        # chunk_size=logprob_chunk_size,
+                        chunk_size=logprob_chunk_size,
                     )
                 else:
                     token_logprobs = from_parallel_logits_to_logprobs(

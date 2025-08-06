@@ -430,6 +430,7 @@ def from_parallel_logits_to_logprobs_packed_sequences(
     group: torch.distributed.ProcessGroup,
     inference_only: bool = False,
     cp_group: Optional[torch.distributed.ProcessGroup] = None,
+    chunk_size: Optional[int] = None,
 ) -> torch.Tensor:
     """Get log probabilities from TP sharded vocab logits for packed sequences.
 
@@ -446,6 +447,7 @@ def from_parallel_logits_to_logprobs_packed_sequences(
         group (torch.distributed.ProcessGroup): Process group for distributed communication.
         inference_only (bool, optional): If True, tensors won't be saved for backward pass. Defaults to False.
         cp_group (torch.distributed.ProcessGroup, optional): Context parallelism process group. Defaults to None.
+        chunk_size (int, optional): Sequence dimension chunk size for computing the log probabilities.
 
     Returns:
         torch.Tensor: Unpacked log probabilities tensor with shape [batch_size, unpacked_seqlen-1].
@@ -479,14 +481,25 @@ def from_parallel_logits_to_logprobs_packed_sequences(
     vocab_parallel_logits = vocab_parallel_logits.unsqueeze(0)
 
     # Apply distributed log probability computation
-    probs: torch.Tensor = DistributedLogprob.apply(  # type: ignore
-        vocab_parallel_logits,
-        rolled_targets,
-        vocab_start_index,
-        vocab_end_index,
-        group,
-        inference_only,
-    ).contiguous()
+    if chunk_size is not None:
+        probs: torch.Tensor = ChunkedDistributedLogprob.apply(  # type: ignore
+            vocab_parallel_logits,
+            rolled_targets,
+            vocab_start_index,
+            vocab_end_index,
+            chunk_size,
+            group,
+            inference_only,
+        ).contiguous()
+    else:
+        probs: torch.Tensor = DistributedLogprob.apply(  # type: ignore
+            vocab_parallel_logits,
+            rolled_targets,
+            vocab_start_index,
+            vocab_end_index,
+            group,
+            inference_only,
+        ).contiguous()
 
     # Remove batch dimension for filtering
     probs = probs.squeeze(0)
