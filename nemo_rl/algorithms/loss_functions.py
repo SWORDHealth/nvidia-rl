@@ -137,8 +137,6 @@ class ClippedPGLossFn(LossFunction):
             global_normalization_factor=global_valid_toks,
         ).item()
 
-        next_token_logits = next_token_logits.to(torch.float32)
-
         if vocab_parallel_group is not None:
             assert vocab_parallel_rank is not None, (
                 "vocab_parallel_rank must be provided when vocab_parallel_group is provided"
@@ -159,6 +157,7 @@ class ClippedPGLossFn(LossFunction):
                 next_token_logits, data["input_ids"], seq_index=seq_index
             )
         else:
+            next_token_logits = next_token_logits.to(torch.float32)
             next_token_logits_wo_last = next_token_logits[
                 :, :-1
             ]  # Remove last position's logits
@@ -326,8 +325,6 @@ class NLLLoss(LossFunction):
         sample_mask = data["sample_mask"]
         mask = token_mask * sample_mask.unsqueeze(-1)
 
-        next_token_logits = next_token_logits.to(torch.float32)
-
         # Gather the logprobs for the actual next tokens
         if vocab_parallel_group is not None:
             assert vocab_parallel_rank is not None, (
@@ -350,6 +347,7 @@ class NLLLoss(LossFunction):
             )
         else:
             next_tokens = data["input_ids"][:, 1:].cuda()  # Skip first token
+            next_token_logits = next_token_logits.to(torch.float32)
             next_token_logprobs = torch.nn.functional.log_softmax(
                 next_token_logits, dim=-1
             )
@@ -581,7 +579,6 @@ class DPOLossFn(PreferenceLoss):
         token_mask = data["token_mask"][:, 1:]
         sample_mask = data["sample_mask"]
 
-        next_token_logits = next_token_logits.to(torch.float32)
         if vocab_parallel_group is not None:
             assert vocab_parallel_rank is not None, (
                 "vocab_parallel_rank must be provided when vocab_parallel_group is provided"
@@ -603,6 +600,7 @@ class DPOLossFn(PreferenceLoss):
             )
         else:
             next_tokens = data["input_ids"][:, 1:].cuda()  # Skip first token
+            next_token_logits = next_token_logits.to(torch.float32)
             next_token_logprobs = torch.nn.functional.log_softmax(
                 next_token_logits, dim=-1
             )
