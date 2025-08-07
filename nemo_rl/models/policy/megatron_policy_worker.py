@@ -652,7 +652,9 @@ class MegatronPolicyWorker:
                 use_torch_fsdp2=self.megatron_cfg.dist_config.use_torch_fsdp2,
                 overlap_param_gather_with_optimizer_step=self.megatron_cfg.optimizer_config.overlap_param_gather_with_optimizer_step,
                 data_parallel_random_init=self.megatron_cfg.rng_config.data_parallel_random_init,
-                wrap_cast_to_fp32=self.cfg["megatron_cfg"].get("deferred_fp32_logits", None),
+                wrap_cast_to_fp32=self.cfg["megatron_cfg"].get(
+                    "deferred_fp32_logits", None
+                ),
             )
             print("Loading the Reference Model")
             if (
@@ -1106,7 +1108,7 @@ class MegatronPolicyWorker:
                     )
                 else:
                     token_logprobs = from_parallel_logits_to_logprobs(
-                        output_tensor.to(torch.float32),
+                        output_tensor,
                         target=unpacked_input_ids,
                         vocab_start_index=tp_rank * output_tensor.shape[-1],
                         vocab_end_index=(tp_rank + 1) * output_tensor.shape[-1],
