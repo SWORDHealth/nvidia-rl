@@ -499,7 +499,7 @@ class VllmGenerationWorker:
         )
         import json
         with open("temp.json", "w") as f:
-            json.dump(prompts, f, indent=4)
+            json.dump({"prompts": prompts, "sampling_params": dict(sampling_params)}, f, indent=4)
         outputs = self.llm.generate(prompts, sampling_params)
 
         # Process the outputs - but preserve the original input padding structure
