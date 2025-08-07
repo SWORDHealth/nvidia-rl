@@ -46,15 +46,10 @@ class PackedGenericDataBatch:
         self.tensors: list[torch.Tensor] = tensorlist
         self.dim_to_pack = dim_to_pack
     
-    def as_tensor(self, as_tensors: bool = True, device: Optional[torch.device] = None) -> Union[torch.Tensor, "PackedGenericDataBatch"]:
-        if not as_tensors:
-            if device is not None:
-                self.tensors = [item.to(device) for item in self.tensors]
-            return self
-        # as tensors
+    def as_tensor(self, device: Optional[torch.device] = None) -> torch.Tensor:
         if device is not None:
             self.tensors = [item.to(device) for item in self.tensors]
-        return torch.cat(self.tensors, dim=self.dim_to_pack)
+        return torch.cat(self.tensors, dim=self.dim_to_pack).to(device)
     
     def __len__(self) -> int:
         # this is the number of items in the batch
