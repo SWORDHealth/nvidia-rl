@@ -124,7 +124,6 @@ from nemo_rl.models.policy.utils import (
     get_megatron_checkpoint_dir,
     get_runtime_env_for_policy_worker,
 )
-from nemo_rl.tron.model import get_model_from_config_no_float32
 
 TokenizerType = TypeVar("TokenizerType", bound=PreTrainedTokenizerBase)
 
@@ -210,17 +209,14 @@ def setup_megatron_model(
         model_post_init_fns.append(re_enable_float32_expert_bias)
 
     # Model, optimizer, and learning rate.
-    if policy_cfg["megatron_cfg"].get("deferred_fp32_logits", None):
-        model_builder = get_model_from_config_no_float32
-    else:
-        model_builder = get_model_from_config
-    model = model_builder(
+    model = get_model_from_config(
         cfg.model_config,
         cfg.ddp_config,
         use_torch_fsdp2=cfg.dist_config.use_torch_fsdp2,
         overlap_param_gather_with_optimizer_step=cfg.optimizer_config.overlap_param_gather_with_optimizer_step,
         data_parallel_random_init=cfg.rng_config.data_parallel_random_init,
         model_post_init_fns=model_post_init_fns,
+        wrap_cast_to_fp32=policy_cfg["megatron_cfg"].get("deferred_fp32_logits", None),
     )
     if load_optimizer:
         optimizer, scheduler = setup_optimizer(
@@ -650,16 +646,13 @@ class MegatronPolicyWorker:
             ref_state = GlobalState()
             ref_state.cfg = ref_megatron_cfg
 
-            if self.cfg["megatron_cfg"].get("deferred_fp32_logits", None):
-                ref_model_builder = get_model_from_config_no_float32
-            else:
-                ref_model_builder = get_model_from_config
-            reference_model = ref_model_builder(
+            reference_model = get_model_from_config(
                 self.megatron_cfg.model_config,
                 self.megatron_cfg.ddp_config,
                 use_torch_fsdp2=self.megatron_cfg.dist_config.use_torch_fsdp2,
                 overlap_param_gather_with_optimizer_step=self.megatron_cfg.optimizer_config.overlap_param_gather_with_optimizer_step,
                 data_parallel_random_init=self.megatron_cfg.rng_config.data_parallel_random_init,
+                wrap_cast_to_fp32=self.cfg["megatron_cfg"].get("deferred_fp32_logits", None),
             )
             print("Loading the Reference Model")
             if (
