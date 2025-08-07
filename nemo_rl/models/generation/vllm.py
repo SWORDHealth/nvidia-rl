@@ -498,7 +498,8 @@ class VllmGenerationWorker:
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
         )
         import json
-        with open("temp.json", "w") as f:
+        import os
+        with open(f"temp_{os.getenv("LOCAL_RANK")}.json", "w") as f:
             json.dump({"prompts": prompts, "sampling_params": dict(sampling_params)}, f, indent=4)
         outputs = self.llm.generate(prompts, sampling_params)
 
