@@ -847,7 +847,7 @@ class VllmGenerationWorker:
         self,
         data: BatchedDataDict[GenerationDatumSpec],
         greedy: bool = False,
-        guided_decoding_params: Optional["GuidedDecodingParams"] = None,  # noqa: F821
+        guided_decoding_params: Optional["GuidedDecodingParams"] = None,
     ) -> BatchedDataDict[GenerationOutputSpec]:
         """Generate text responses using vLLM generation.
 
