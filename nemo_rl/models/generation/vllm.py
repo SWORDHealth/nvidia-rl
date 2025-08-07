@@ -497,6 +497,9 @@ class VllmGenerationWorker:
         assert self.llm is not None, (
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
         )
+        import json
+        with open("temp.json", "w") as f:
+            json.dump(prompts, f, indent=4)
         outputs = self.llm.generate(prompts, sampling_params)
 
         # Process the outputs - but preserve the original input padding structure
