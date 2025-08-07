@@ -499,7 +499,7 @@ def get_formatted_message_log(
         else:
             # extend the else statement to add other modalities (in this case, tokenizer will be a processor)
             processed_chunk = tokenizer(
-                text=[message_chunk], images=images_cur_message, return_tensors="pt", add_special_tokens=True
+                text=[message_chunk], images=images_cur_message, return_tensors="pt", add_special_tokens=False
             )
             new_message["token_ids"] = processed_chunk["input_ids"][0]
 

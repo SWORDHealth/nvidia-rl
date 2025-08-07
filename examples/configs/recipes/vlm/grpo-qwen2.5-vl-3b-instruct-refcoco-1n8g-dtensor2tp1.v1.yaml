@@ -43,3 +43,6 @@ data:
   split: "default"
   task_name: "refcoco"   # must match the task_name in the dataset
   seed: 42
+
+cluster:
+  gpus_per_node: 8
