@@ -471,6 +471,7 @@ class VllmGenerationWorker:
         Args:
             data: BatchedDataDict containing input_ids and input_lengths tensors
             greedy: Whether to use greedy decoding instead of sampling
+            guided_decoding_config: Configuration for guided decoding, None to disable guided decoding.
 
         Returns:
             BatchedDataDict conforming to GenerationOutputSpec:
@@ -537,7 +538,6 @@ class VllmGenerationWorker:
         unpadded_sequence_lengths = []
         max_length = 0
         for output in outputs:
-            print("output", output.outputs[0].text)
             max_length = max(max_length, len(output.outputs[0].token_ids))
 
         for i, output in enumerate(outputs):
@@ -616,6 +616,7 @@ class VllmGenerationWorker:
         Args:
             data: BatchedDataDict with input_ids and input_lengths
             greedy: Whether to use greedy decoding instead of sampling
+            guided_decoding_config: Configuration for guided decoding, None to disable guided decoding.
 
         Yields:
             Tuple of (original_index, BatchedDataDict conforming to GenerationOutputSpec for the single sequence)

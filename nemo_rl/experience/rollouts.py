@@ -329,6 +329,7 @@ def run_multi_turn_rollout(
         max_rollout_turns: Maximum number of agent-environment interaction turns.
         max_seq_len: Maximum sequence length allowed.
         greedy: Whether to use greedy decoding.
+        guided_decoding_config: Configuration for guided decoding, None to disable guided decoding.
 
     Returns:
         Tuple containing:
@@ -525,6 +526,7 @@ async def async_generate_response_for_sample_turn(
         tokenizer: Tokenizer to use
         max_seq_len: Maximum sequence length
         greedy: Whether to use greedy decoding
+        guided_decoding_config: Configuration for guided decoding, None to disable guided decoding.
 
     Returns:
         Tuple of (updated_message_log, generated_tokens, input_lengths, generation_metrics)
@@ -600,6 +602,7 @@ async def run_sample_multi_turn_rollout(
         max_seq_len: Maximum sequence length
         max_rollout_turns: Maximum number of turns
         greedy: Whether to use greedy decoding
+        guided_decoding_config: Configuration for guided decoding, None to disable guided decoding.
 
     Returns:
         Tuple of (final_sample_state, sample_metrics)
@@ -759,6 +762,7 @@ def run_async_multi_turn_rollout(
         max_seq_len: Maximum sequence length allowed
         max_rollout_turns: Maximum number of agent-environment interaction turns
         greedy: Whether to use greedy decoding
+        guided_decoding_config: Configuration for guided decoding, None to disable guided decoding.
 
     Returns:
         Tuple containing:
