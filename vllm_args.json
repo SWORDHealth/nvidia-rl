@@ -28,5 +28,17 @@
         "VLLM_USE_V1": "1",
         "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
         "CUDA_MODULE_LOADING": "LAZY"
+    },
+    "sampling_params": {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": -1,
+        "max_tokens": 8192,
+        "logprobs": 0,
+        "stop_token_ids": [
+            151643
+        ],
+        "stop": null,
+        "include_stop_str_in_output": true
     }
 }

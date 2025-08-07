@@ -28,13 +28,14 @@ if __name__ == "__main__":
         vllm_args = json.load(f)
     llm_kwargs = vllm_args["vllm_llm_kwargs"]
     env_vars = vllm_args["environment_variables"]
+    sampling_params = vllm_args["sampling_params"]
 
     NUM_GPUS = 8
     TENSOR_PARALLEL_SIZE = 1
 
     workers = []
     for _ in range(NUM_GPUS // TENSOR_PARALLEL_SIZE):
-        worker = VLLMWorker.options(num_gpus=TENSOR_PARALLEL_SIZE).remote(llm_kwargs, env_vars, dict())
+        worker = VLLMWorker.options(num_gpus=TENSOR_PARALLEL_SIZE).remote(llm_kwargs, env_vars, sampling_params)
         workers.append(worker)
 
     prompt = "Explain Ray in one sentence."
@@ -43,3 +44,6 @@ if __name__ == "__main__":
 
     for i, r in enumerate(responses):
         print(f"[GPU {i}] {r}")
+
+    with open("prompt_token_ids.json") as f:
+        all_prompt_token_ids = json.load(f)
