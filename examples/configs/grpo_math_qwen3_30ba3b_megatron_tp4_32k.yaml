@@ -13,7 +13,6 @@ grpo:
   val_at_start: True
   # max_val_samples: 256
   # val_batch_size: 256
-  val_num_generations_per_prompt: 16
 
 policy:
   model_name: "Qwen/Qwen3-30B-A3B"
