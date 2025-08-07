@@ -22,9 +22,9 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 
 from nemo_rl.algorithms.loss_functions import (
-    NLLLoss,
+    NLLLoss, MDLMCrossEntropyLoss,
 )
-from nemo_rl.algorithms.utils import set_seed
+from nemo_rl.algorithms.utils import set_seed, prepare_for_mdlm_train_data
 from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, rl_collate_fn
 from nemo_rl.data.interfaces import TaskDataSpec
@@ -93,7 +93,7 @@ def setup(
     RayVirtualCluster,
     StatefulDataLoader,
     StatefulDataLoader,
-    NLLLoss,
+    NLLLoss | MDLMCrossEntropyLoss,
     Logger,
     CheckpointManager,
     SFTSaveState,
@@ -112,6 +112,9 @@ def setup(
     logger_config = master_config["logger"]
     cluster_config = master_config["cluster"]
     sft_config = master_config["sft"]
+
+    # get type of the policy (mdlm or gpt)
+    is_mdlm = policy_config.get("is_mdlm", False)
 
     # ==========================
     #         Logger
@@ -184,7 +187,15 @@ def setup(
         init_optimizer=True,
         init_reference_model=False,
     )
-    loss_fn = NLLLoss()
+
+    # ==========================
+    #       Loss Function
+    # ==========================
+    if is_mdlm:
+        loss_fn = MDLMCrossEntropyLoss()
+    else:
+        loss_fn = NLLLoss()
+
     print("  ✓ Model initialized")
 
     print("\n" + "=" * 60)
@@ -251,14 +262,31 @@ def validate(
                 ],
             )
 
-            val_data: BatchedDataDict = BatchedDataDict(
-                {
-                    "input_ids": cat_and_padded["token_ids"],
-                    "input_lengths": input_lengths,
-                    "token_mask": cat_and_padded["token_loss_mask"],
-                    "sample_mask": val_batch["loss_multiplier"],
-                }
-            )
+            is_mdlm = master_config["policy"].get("is_mdlm", False)
+
+            if is_mdlm:
+                target_ids = cat_and_padded["token_ids"].clone()
+                cat_and_padded = prepare_for_mdlm_train_data(cat_and_padded, tokenizer.mask_token_id)
+                val_data: BatchedDataDict = BatchedDataDict(
+                    {
+                        "target_ids": target_ids,
+                        "input_ids": cat_and_padded["token_ids"],
+                        "noise_mask": cat_and_padded["noise_mask"],
+                        "p_mask": cat_and_padded["p_mask"],
+                        "input_lengths": input_lengths,
+                        "token_mask": cat_and_padded["token_loss_mask"],
+                        "sample_mask": val_batch["loss_multiplier"],
+                    }
+                )
+            else:
+                val_data: BatchedDataDict = BatchedDataDict(
+                    {
+                        "input_ids": cat_and_padded["token_ids"],
+                        "input_lengths": input_lengths,
+                        "token_mask": cat_and_padded["token_loss_mask"],
+                        "sample_mask": val_batch["loss_multiplier"],
+                    }
+                )
 
             ## just run model fwd
             val_results = policy.train(
@@ -326,6 +354,9 @@ def sft_train(
 ) -> None:
     # Run basic sft training
     timer = Timer()
+
+    # get type of the policy (mdlm or gpt)
+    is_mdlm = master_config["policy"].get("is_mdlm", False)
 
     if sft_save_state is None:
         sft_save_state = _default_sft_save_state()
@@ -395,14 +426,30 @@ def sft_train(
                         ],
                     )
 
-                    train_data: BatchedDataDict = BatchedDataDict(
-                        {
-                            "input_ids": cat_and_padded["token_ids"],
-                            "input_lengths": input_lengths,
-                            "token_mask": cat_and_padded["token_loss_mask"],
-                            "sample_mask": batch["loss_multiplier"],
-                        }
-                    )
+                    if is_mdlm:
+                        target_ids = cat_and_padded["token_ids"].clone()
+                        cat_and_padded = prepare_for_mdlm_train_data(cat_and_padded, tokenizer.mask_token_id)
+                        train_data: BatchedDataDict = BatchedDataDict(
+                            {
+                                "target_ids": target_ids,
+                                "input_ids": cat_and_padded["token_ids"],
+                                "noise_mask": cat_and_padded["noise_mask"],
+                                "p_mask": cat_and_padded["p_mask"],
+                                "input_lengths": input_lengths,
+                                "token_mask": cat_and_padded["token_loss_mask"],
+                                "sample_mask": batch["loss_multiplier"],
+                            }
+                        )
+                    else:
+                        train_data: BatchedDataDict = BatchedDataDict(
+                            {
+                                "input_ids": cat_and_padded["token_ids"],
+                                "input_lengths": input_lengths,
+                                "token_mask": cat_and_padded["token_loss_mask"],
+                                "sample_mask": batch["loss_multiplier"],
+                            }
+                        )
+
 
                 print("▶ Taking a training step...")
                 train_results = policy.train(train_data, loss_fn)

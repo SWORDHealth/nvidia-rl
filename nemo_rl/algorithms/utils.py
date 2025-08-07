@@ -22,7 +22,47 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from nemo_rl.data import hf_datasets
 from nemo_rl.models.policy import TokenizerConfig
+from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 
+
+def prepare_for_mdlm_train_data(cat_and_padded: BatchedDataDict, mask_token_id: int, eps: float = 1e-3) -> BatchedDataDict:
+    """Prepare the training data for the MDLM SFT.
+
+    This function is stochastic, so it will return a different data dict 
+    each time it is called, in spirit of diffusion models. The `token_ids`
+    are masked with a probability, sampled for each sequence independently.
+    Additionally, `token_loss_mask` is upcasted to float32 and reflects the 
+    importance of the tokens to the loss. The rest of the keys are not modified.
+    """
+    token_ids = cat_and_padded["token_ids"]
+    token_loss_mask = cat_and_padded["token_loss_mask"]
+
+
+    # t ~ U[0, 1] for each sequence
+    bsz, seq_len = token_ids.size(0), token_ids.size(1)
+    t = torch.rand((bsz,), device=token_ids.device)
+
+    p_mask = (1 - eps) * t + eps
+    p_mask = p_mask[:, None].repeat(1, seq_len) # (bsz, seq_len)
+
+    noise_mask = torch.rand((bsz, seq_len), device=token_ids.device) < p_mask
+    noise_mask = noise_mask & token_loss_mask
+    noisy_token_ids = torch.where(noise_mask, mask_token_id, token_ids)
+
+    new_cat_and_padded = BatchedDataDict(
+        {
+            "token_ids": noisy_token_ids,
+            "token_loss_mask": token_loss_mask,
+            "noise_mask": noise_mask,
+            "p_mask": p_mask,
+        }
+    )
+
+    for k, v in cat_and_padded.items():
+        if k not in new_cat_and_padded:
+            new_cat_and_padded[k] = v
+
+    return new_cat_and_padded
 
 def calculate_kl_penalty_joschu2020(
     logprobs_policy: torch.Tensor, logprobs_reference: torch.Tensor
@@ -205,6 +245,13 @@ def get_tokenizer(tokenizer_config: TokenizerConfig) -> PreTrainedTokenizerBase:
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    # TODO(mfathi): make this configurable and does not break the default behavior
+    if tokenizer.mask_token is None:
+        tokenizer.mask_token = '<|mdm_mask|>'
+        tokenizer.mask_token_id = tokenizer.convert_tokens_to_ids(['<|mdm_mask|>'])[0]
+        # NOTE(mfathi): mask_token_id should be 126336 for LLaDA
+
     if "chat_template" in tokenizer_config:
         if tokenizer_config["chat_template"] is None:
             print("Using passthrough chat template")

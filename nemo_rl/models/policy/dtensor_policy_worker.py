@@ -14,6 +14,7 @@
 
 import contextlib
 import gc
+import inspect
 import itertools
 import os
 from collections import defaultdict
@@ -260,8 +261,7 @@ class DTensorPolicyWorker:
 
         with init_empty_weights():
             self.model = model_class.from_config(
-                model_config,
-            )
+                model_config, trust_remote_code=True)
 
         if self.model.config.pad_token_id is None:
             self.model.config.pad_token_id = tokenizer.pad_token_id
@@ -705,6 +705,8 @@ class DTensorPolicyWorker:
                                 use_cache=False,
                                 flash_attn_kwargs=flash_attn_kwargs,
                             )
+                            if "position_ids" in inspect.signature(self.model).parameters:
+                                model_args["position_ids"] = position_ids
 
                             if self._is_reward_model:
                                 # `flash_attn_kwarg` is not supported for `LlamaForSequenceClassification`.

@@ -133,6 +133,7 @@ class DynamicBatchingConfig(TypedDict):
 
 
 class PolicyConfig(TypedDict):
+    is_mdlm: bool
     model_name: str
     tokenizer: TokenizerConfig
     train_global_batch_size: int

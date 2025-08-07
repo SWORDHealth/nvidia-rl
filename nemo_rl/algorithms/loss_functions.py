@@ -14,6 +14,7 @@
 from typing import Any, Optional, TypedDict, TypeVar
 
 import torch
+import torch.nn.functional as F
 
 from nemo_rl.algorithms.interfaces import LossFunction, LossType
 from nemo_rl.algorithms.utils import (
@@ -373,6 +374,69 @@ class NLLLoss(LossFunction):
                 mask,
                 global_normalization_factor=global_valid_toks,
             )
+
+        return loss, {
+            "loss": loss.item() if loss.ndim == 0 else loss,
+            "num_unmasked_tokens": mask.sum().item(),
+            "num_valid_samples": sample_mask.sum().item(),
+        }
+
+class MDLMCrossEntropyLoss(LossFunction):
+    """MDLM Cross Entropy Loss function for MDLM SFT."""
+
+    loss_type = LossType.TOKEN_LEVEL
+
+    def __call__(
+        self,
+        token_logits: Tensor,
+        data: BatchedDataDict[Any],
+        global_valid_seqs: Tensor | None,
+        global_valid_toks: Tensor,
+        vocab_parallel_rank: Optional[int] = None,
+        vocab_parallel_group: Optional[torch.distributed.ProcessGroup] = None,
+        dpo_loss: bool = False,
+        dpo_average_log_probs: bool = False,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+
+        # logits shape: [batch_size, seq_len, vocab_size]
+        target_ids = data["target_ids"]
+        token_mask = data["token_mask"]
+        noise_mask = data["noise_mask"]
+        p_mask = data["p_mask"]
+        sample_mask = data["sample_mask"]
+
+        mask = (noise_mask * sample_mask.unsqueeze(-1)).to(torch.bool)
+
+        token_logits = token_logits.to(torch.float32)
+
+        # Gather the logprobs
+        if vocab_parallel_group is not None:
+            assert vocab_parallel_rank is not None, (
+                "vocab_parallel_rank must be provided when vocab_parallel_group is provided"
+            )
+            token_logprobs = from_parallel_logits_to_logprobs(
+                token_logits,
+                target_ids,
+                vocab_start_index=vocab_parallel_rank * token_logits.shape[-1],
+                vocab_end_index=(vocab_parallel_rank + 1) * token_logits.shape[-1],
+                tp_group=vocab_parallel_group,
+                inference_only=False,
+            )
+        elif isinstance(token_logits, torch.distributed.tensor.DTensor):
+            token_logprobs = get_logprobs_from_vocab_parallel_logits(
+                token_logits, target_ids
+            )
+        else:
+            token_logprobs = torch.nn.functional.log_softmax(
+                token_logits, dim=-1
+            ).gather(
+                dim=-1, index=target_ids.cuda().unsqueeze(-1)
+            ).squeeze(-1)
+
+        answer_lengths = token_mask.sum(dim=-1)[:, None]
+        _token_logprobs = token_logprobs / answer_lengths
+        token_loss = -_token_logprobs[mask] / p_mask[mask]  # cross entropy loss
+        loss = torch.sum(token_loss) / global_valid_seqs
 
         return loss, {
             "loss": loss.item() if loss.ndim == 0 else loss,
