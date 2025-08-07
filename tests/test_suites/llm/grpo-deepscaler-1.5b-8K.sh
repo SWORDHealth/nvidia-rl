@@ -4,11 +4,13 @@ source $SCRIPT_DIR/common.env
 
 # ===== BEGIN CONFIG =====
 NUM_NODES=1
-STEPS_PER_RUN=240
-MAX_STEPS=240
+STEPS_PER_RUN=40
+MAX_STEPS=40
 NUM_RUNS=$(( (MAX_STEPS + STEPS_PER_RUN - 1) / STEPS_PER_RUN ))  # Round up
 NUM_MINUTES=240
 # ===== END CONFIG =====
+STEPS_PER_RUN=240
+MAX_STEPS=240
 
 exit_if_max_steps_reached
 
@@ -35,17 +37,32 @@ uv run tests/json_dump_tb_logs.py $LOG_DIR --output_path $JSON_METRICS
 if [[ $(jq 'to_entries | .[] | select(.key == "train/loss") | .value | keys | map(tonumber) | max' $JSON_METRICS) -ge $MAX_STEPS ]]; then
     uv run tests/check_metrics.py $JSON_METRICS \
         'mean(data["train/token_mult_prob_error"]) < 1.1' \
-        'data["train/token_mult_prob_error"]["240"] < 1.1'
+        "data['train/token_mult_prob_error']['$MAX_STEPS'] < 1.1"
 fi
 
 # Convert 8k checkpoint
 uv run examples/converters/convert_dcp_to_hf.py \
-  --config=results/grpo/step_240/config.yaml \
-  --dcp-ckpt-path=results/grpo/step_240/policy/weights \
-  --hf-ckpt-path=results/grpo-deepscaler-8k-240-hf
+  --config=$CKPT_DIR/step_${MAX_STEPS}/config.yaml \
+  --dcp-ckpt-path=$CKPT_DIR/step_${MAX_STEPS}/policy/weights \
+  --hf-ckpt-path=$CKPT_DIR/grpo-deepscaler-8k-${MAX_STEPS}-hf
 
 # Run eval
 uv run examples/run_eval.py \
-    generation.model_name=results/grpo-deepscaler-8k-240-hf \
+    generation.model_name=$CKPT_DIR/grpo-deepscaler-8k-${MAX_STEPS}-hf \
     data.prompt_file=examples/prompts/cot.txt \
-    generation.vllm_cfg.max_model_len=32768
+    generation.vllm_cfg.max_model_len=32768 2>&1 | tee ${RUN_LOG}.aime-8k
+
+cat ${RUN_LOG}.aime-8k       | grep "score=" | sed 's/.*score=\([^ ]*\).*/{"score": \1}/' > ${RUN_LOG}-8k-metric.json
+ 
+uv run tests/check_metrics.py ${RUN_LOG}-8k-metric.json \
+  'data["score"] >= 0.25' \
+
+#uv run examples/run_eval.py \
+#    generation.model_name=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+#    data.prompt_file=examples/prompts/cot.txt \
+#    generation.vllm_cfg.max_model_len=32768 2>&1 | tee ${RUN_LOG}.aime-baseline
+
+#cat ${RUN_LOG}.aime-baseline | grep "score=" | sed 's/.*score=\([^ ]*\).*/{"score": \1}/' > ${RUN_LOG}-baseline-metric.json
+
+#uv run tests/check_metrics.py ${RUN_LOG}-baseline-metric.json \
+#  'data["score"] == 0.2' \
