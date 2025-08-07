@@ -433,6 +433,28 @@ def get_formatted_message_log(
     multimodal_keys = get_multimodal_keys_from_processor(tokenizer)
 
     def _format_content_helper(content: Union[str, list[dict[str, Any]]]) -> Union[str, list[dict[str, Any]]]:
+        '''
+        This function formats the text portion of the first user message with the task prompt.
+        The `content` argument could either be a string (user text prompt) or a dict (user text prompt + multimodal data)
+
+        Examples of `content` argument include strings or dicts from the following conversation turns:
+        - {"role": "user", "content": "What is the capital of France?"}
+        - {"role": "user", "content": [{"type": "text", "text": "What is the capital of the city in the image?"}, {"type": "image", "image": "path/to/image.jpg"}]}
+        - {"role": "user", "content": [{"type": "text", "text": "Does the animal in the image match the sound it makes in the audio?"}, {"type": "image", "image": "path/to/image.jpg"}, {"type": "audio", "audio": "path/to/audio.mp3"}]}
+
+        In all cases, the text portion of the message is formatted with the task prompt.
+
+        Previously, the `content` argument was modified using 
+        >>> message_log_strs = [
+        ...     {
+        ...         "role": "user",
+        ...         "content": task_data_spec.prompt.format(message_log_strs[0]["content"]), 
+        ...     }
+        ... ] + message_log_strs[1:]
+        >>> 
+
+        which assumes that the first message is a string (not true for multimodal data). This helper function correctly handles all cases.
+        '''
         if isinstance(content, str):
             return task_data_spec.prompt.format(content)
         # this is a list of dicts, format only the text ones
