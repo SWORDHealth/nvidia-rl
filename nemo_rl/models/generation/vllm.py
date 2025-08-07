@@ -445,7 +445,7 @@ class VllmGenerationWorker:
         greedy: bool,
         stop_strings,
         max_new_tokens: Optional[int] = None,
-        guided_decoding_params: Optional["GuidedDecodingParams"] = None,  # noqa: F821
+        guided_decoding_params: Optional["GuidedDecodingParams"] = None,
     ):
         top_k_cfg = self.cfg["top_k"]
         top_k_val = 1 if greedy else (top_k_cfg if top_k_cfg is not None else -1)
