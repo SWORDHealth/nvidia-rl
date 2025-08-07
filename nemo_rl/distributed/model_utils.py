@@ -145,8 +145,11 @@ class DistributedLogprob(torch.autograd.Function):
 
 class ChunkedDistributedLogprob(torch.autograd.Function):
     """Custom autograd function for computing log probabilities in a distributed setting.
-    The log probabilities computation is sequence chunked to mitigate device memory
-    usage during backward pass.
+
+    The log probabilities computation is chunked in the sequence dimension
+    to mitigate GPU OOM (especially during backward pass).
+    In addition, logits casting from float16 or bfloat16 -> float32 is performed
+    inside the chunk loop to avoid materializing a whole float32 logits tensor.
 
     Adapted from https://github.com/NVIDIA/NeMo-Aligner/blob/9faab404f21994a7eb1d6ed5890b76152b941636/nemo_aligner/utils/distributed.py#L286
     """
@@ -175,7 +178,7 @@ class ChunkedDistributedLogprob(torch.autograd.Function):
             chunk_start = chunk_idx * chunk_size
             chunk_end = min(seq_size, (chunk_idx + 1) * chunk_size)
 
-            logits = vocab_parallel_logits[:,chunk_start:chunk_end,:]
+            logits = vocab_parallel_logits[:, chunk_start:chunk_end, :]
             logits = logits.to(dtype=torch.float32)
 
             log_softmax_output = _compute_distributed_log_softmax(
@@ -185,11 +188,9 @@ class ChunkedDistributedLogprob(torch.autograd.Function):
             log_probs = log_softmax_output.clone()
 
             log_probs = torch.gather(
-                log_probs,
-                -1,
-                masked_target[:,chunk_start:chunk_end].unsqueeze(-1)
+                log_probs, -1, masked_target[:, chunk_start:chunk_end].unsqueeze(-1)
             ).squeeze(-1)
-            log_probs[target_mask[:,chunk_start:chunk_end]] = 0.0
+            log_probs[target_mask[:, chunk_start:chunk_end]] = 0.0
 
             torch.distributed.all_reduce(
                 log_probs,
@@ -229,7 +230,7 @@ class ChunkedDistributedLogprob(torch.autograd.Function):
             chunk_start = chunk_idx * chunk_size
             chunk_end = min(seq_size, (chunk_idx + 1) * chunk_size)
 
-            logits = vocab_parallel_logits[:,chunk_start:chunk_end,:]
+            logits = vocab_parallel_logits[:, chunk_start:chunk_end, :]
             logits = logits.to(dtype=torch.float32)
 
             log_softmax_output = _compute_distributed_log_softmax(
@@ -240,14 +241,16 @@ class ChunkedDistributedLogprob(torch.autograd.Function):
             softmax_output = log_softmax_output.exp_()
 
             # 1 if it's the chosen log prob, 0 otherwise
-            is_chosen = (~(target_mask[:,chunk_start:chunk_end])).unsqueeze(-1) * torch.nn.functional.one_hot(
-                masked_target[:,chunk_start:chunk_end],
+            is_chosen = (~(target_mask[:, chunk_start:chunk_end])).unsqueeze(
+                -1
+            ) * torch.nn.functional.one_hot(
+                masked_target[:, chunk_start:chunk_end],
                 num_classes=partition_vocab_size,
             )
 
             grad_input = is_chosen.float().sub_(softmax_output)
 
-            grad_input.mul_(grad_output[:,chunk_start:chunk_end].unsqueeze(dim=-1))
+            grad_input.mul_(grad_output[:, chunk_start:chunk_end].unsqueeze(dim=-1))
 
             all_grad_input.append(grad_input)
 
@@ -280,6 +283,7 @@ def dtensor_from_parallel_logits_to_logprobs(
         inference_only (bool, optional): If True, tensors won't be saved for backward pass. Defaults to False.
         seq_index (Optional[torch.Tensor]): Sequence index tensor with shape [seq_len].
             It is only provided for cp sharded logits. It represents how tensor is sharded across the sequence dimension.
+        chunk_size (Optional[int]): Sequence dimension chunk size for computing the log probabilities.
 
     Returns:
         torch.Tensor: Log probabilities tensor with shape [batch_size, seq_len-1].
@@ -363,6 +367,7 @@ def from_parallel_logits_to_logprobs(
         tp_group (torch.distributed.ProcessGroup): Process group for distributed communication.
         inference_only (bool, optional): If True, tensors won't be saved for backward pass. Defaults to False.
         cp_group (torch.distributed.ProcessGroup, optional): Context parallelism process group. Defaults to None.
+        chunk_size (int, optional): Sequence dimension chunk size for computing the log probabilities.
 
     Returns:
         torch.Tensor: Log probabilities tensor with shape [batch_size, seq_len-1].
@@ -425,6 +430,7 @@ def from_parallel_logits_to_logprobs_packed_sequences(
     group: torch.distributed.ProcessGroup,
     inference_only: bool = False,
     cp_group: Optional[torch.distributed.ProcessGroup] = None,
+    chunk_size: Optional[int] = None,
 ) -> torch.Tensor:
     """Get log probabilities from TP sharded vocab logits for packed sequences.
 
@@ -441,6 +447,7 @@ def from_parallel_logits_to_logprobs_packed_sequences(
         group (torch.distributed.ProcessGroup): Process group for distributed communication.
         inference_only (bool, optional): If True, tensors won't be saved for backward pass. Defaults to False.
         cp_group (torch.distributed.ProcessGroup, optional): Context parallelism process group. Defaults to None.
+        chunk_size (int, optional): Sequence dimension chunk size for computing the log probabilities.
 
     Returns:
         torch.Tensor: Unpacked log probabilities tensor with shape [batch_size, unpacked_seqlen-1].
@@ -474,14 +481,25 @@ def from_parallel_logits_to_logprobs_packed_sequences(
     vocab_parallel_logits = vocab_parallel_logits.unsqueeze(0)
 
     # Apply distributed log probability computation
-    probs: torch.Tensor = DistributedLogprob.apply(  # type: ignore
-        vocab_parallel_logits,
-        rolled_targets,
-        vocab_start_index,
-        vocab_end_index,
-        group,
-        inference_only,
-    ).contiguous()
+    if chunk_size is not None:
+        probs: torch.Tensor = ChunkedDistributedLogprob.apply(  # type: ignore
+            vocab_parallel_logits,
+            rolled_targets,
+            vocab_start_index,
+            vocab_end_index,
+            chunk_size,
+            group,
+            inference_only,
+        ).contiguous()
+    else:
+        probs: torch.Tensor = DistributedLogprob.apply(  # type: ignore
+            vocab_parallel_logits,
+            rolled_targets,
+            vocab_start_index,
+            vocab_end_index,
+            group,
+            inference_only,
+        ).contiguous()
 
     # Remove batch dimension for filtering
     probs = probs.squeeze(0)

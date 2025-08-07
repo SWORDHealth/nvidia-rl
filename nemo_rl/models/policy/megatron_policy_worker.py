@@ -210,7 +210,11 @@ def setup_megatron_model(
         model_post_init_fns.append(re_enable_float32_expert_bias)
 
     # Model, optimizer, and learning rate.
-    model = get_model_from_config_no_float32(
+    if policy_cfg["megatron_cfg"].get("deferred_fp32_logits", None):
+        model_builder = get_model_from_config_no_float32
+    else:
+        model_builder = get_model_from_config
+    model = model_builder(
         cfg.model_config,
         cfg.ddp_config,
         use_torch_fsdp2=cfg.dist_config.use_torch_fsdp2,
@@ -646,7 +650,11 @@ class MegatronPolicyWorker:
             ref_state = GlobalState()
             ref_state.cfg = ref_megatron_cfg
 
-            reference_model = get_model_from_config_no_float32(
+            if self.cfg["megatron_cfg"].get("deferred_fp32_logits", None):
+                ref_model_builder = get_model_from_config_no_float32
+            else:
+                ref_model_builder = get_model_from_config
+            reference_model = ref_model_builder(
                 self.megatron_cfg.model_config,
                 self.megatron_cfg.ddp_config,
                 use_torch_fsdp2=self.megatron_cfg.dist_config.use_torch_fsdp2,
@@ -1101,8 +1109,7 @@ class MegatronPolicyWorker:
                         group=tp_grp,
                         inference_only=True,
                         cp_group=get_context_parallel_group(),
-                        # TODO(pjin): chunked logprob not implemented yet w/ seq packing.
-                        # chunk_size=logprob_chunk_size,
+                        chunk_size=logprob_chunk_size,
                     )
                 else:
                     token_logprobs = from_parallel_logits_to_logprobs(
