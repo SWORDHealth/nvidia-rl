@@ -350,6 +350,9 @@ class VllmGenerationWorker:
 
             self.llm = AsyncLLM.from_engine_args(AsyncEngineArgs(**llm_kwargs))
         else:
+            print(llm_kwargs)
+            from os import environ
+            print(environ)
             self.llm = vllm.LLM(**llm_kwargs)
 
         # will be initialized in post_init
