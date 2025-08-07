@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
+from typing import Any, Optional, Union
 import json
 from datasets import Dataset, load_dataset
 from pathlib import Path
@@ -167,7 +167,7 @@ def format_refcoco_dataset(example: dict[str, Any], width: int = 448 , height: i
     return ret
 
 # contain different variants of the CLEVR dataset 
-def prepare_refcoco_dataset(split: str = "default", seed: int = 42, task_name: Optional[str] = None, path_to_coco_images: Optional[str] = None):
+def prepare_refcoco_dataset(split: str = "default", seed: int = 42, task_name: Optional[str] = None, path_to_coco_images: Optional[Union[str, Path]] = None):
     if task_name is None:
         task_name = "refcoco"
 

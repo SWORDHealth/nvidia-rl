@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Callable
+from typing import Callable, Optional
 import re
 import numpy as np
 from math_verify.metric import math_metric
@@ -44,7 +44,7 @@ def math_expression_reward(ground_truth: str, response: str) -> tuple[float, boo
     return 0.0, False
 
 
-def format_reward(ground_truth: str, response: str) -> tuple[float, bool]:
+def format_reward(ground_truth: str, response: str) -> tuple[float, Optional[bool]]:
     '''
     Reward the agent for the following:
     - response follows the format: (.*) <think> (.*) </think> <answer> (.*) </answer>
@@ -97,7 +97,7 @@ def bbox_giou_reward(ground_truth: str, response: str, giou_penalty_thres: float
     x2i = min(x2g, x2r)
     y2i = min(y2g, y2r)
     # compute the area of the intersection
-    area_i = max(0, x2i - x1i) * max(0, y2i - y1i)
+    area_i = max(0.0, x2i - x1i) * max(0.0, y2i - y1i)
     # compute the area of the union
     area_u = max(1e-3, area_g + area_r - area_i)
     # compute the iou

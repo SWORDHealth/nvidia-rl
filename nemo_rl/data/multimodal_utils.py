@@ -1,5 +1,5 @@
 from transformers import PreTrainedTokenizerBase
-from typing import Union, Optional
+from typing import Union, Optional, overload
 import torch
 import numpy as np
 from collections import defaultdict
@@ -8,11 +8,11 @@ import re
 class PackedGenericDataItem:
 
     """Wrapper around a torch tensor that contains multimodal data"""
-    def __init__(self, tensor: torch.Tensor, dim_to_pack: int = 0):
+    def __init__(self, tensor: torch.Tensor, dim_to_pack: int = 0) -> None:
         self.tensor = tensor
         self.dim_to_pack = dim_to_pack
     
-    def __call__(self):
+    def __call__(self) -> torch.Tensor:
         return self.tensor
 
     @classmethod
@@ -33,18 +33,20 @@ class PackedGenericDataBatch:
 
     ItemClass = PackedGenericDataItem
     """Wrapper around a torch tensor that contains multimodal data"""
-    def __init__(self, tensors: Union[list[torch.Tensor], list[PackedGenericDataItem]], dim_to_pack: int):
-        # this is a concatenated databatch of packed multimodal data
-        if isinstance(tensors[0], torch.Tensor):
-            self.tensors = tensors
-        elif isinstance(tensors[0], PackedGenericDataItem):
-            self.tensors = [item.tensor for item in tensors]
-        else:
-            raise ValueError("tensor must be a torch.Tensor or a list of PackedGenericDataItem objects")
+
+    def __init__(self, tensors: Union[list[torch.Tensor], list[PackedGenericDataItem]], dim_to_pack: int) -> None:
+        tensorlist: list[torch.Tensor] = []
+        for item in tensors:
+            if isinstance(item, torch.Tensor):
+                tensorlist.append(item)
+            elif isinstance(item, PackedGenericDataItem):
+                tensorlist.append(item.tensor)
+            else:
+                raise ValueError("tensors must be a list of torch.Tensors or a list of PackedGenericDataItem objects")
+        self.tensors: list[torch.Tensor] = tensorlist
         self.dim_to_pack = dim_to_pack
     
-    def as_tensor(self, as_tensors: bool = True, device: Optional[torch.device] = None) -> torch.Tensor:
-        # return (self.tensor.to(device) if device is not None else self.tensor) if as_tensors else self
+    def as_tensor(self, as_tensors: bool = True, device: Optional[torch.device] = None) -> Union[torch.Tensor, "PackedGenericDataBatch"]:
         if not as_tensors:
             if device is not None:
                 self.tensors = [item.to(device) for item in self.tensors]

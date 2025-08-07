@@ -42,7 +42,7 @@ from nemo_rl.environments.rewards import (
 class VLMEnvConfig(TypedDict):
     num_workers: int
     stop_strings: Optional[list[str]]  # Default stop strings for this env
-    reward_functions: List[Tuple[str, float]]   # list of reward functions and their weights
+    reward_functions: List[dict[str, Any]]   # list of reward functions and their weights
 
 @contextlib.contextmanager
 def _mute_output():
@@ -62,9 +62,9 @@ class VLMVerifyWorker:
         # loop over all configs
         for reward_func_cfg in cfg["reward_functions"]:
             # get name and weight
-            reward_func_name = reward_func_cfg["name"]
-            reward_func_weight = reward_func_cfg["weight"]
-            reward_func_kwargs = reward_func_cfg.get("kwargs", None)
+            reward_func_name: str = reward_func_cfg["name"]
+            reward_func_weight: float = reward_func_cfg["weight"]
+            reward_func_kwargs: Optional[dict] = reward_func_cfg.get("kwargs", None)
             if reward_func_name == "format":
                 reward_func = format_reward
             elif reward_func_name == "exact_alnum":
