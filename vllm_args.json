@@ -9,7 +9,7 @@
         "enable_prefix_caching": true,
         "dtype": "bfloat16",
         "seed": 4,
-        "enforce_eager": false,
+        "enforce_eager": true,
         "max_model_len": 8192,
         "trust_remote_code": true,
         "worker_extension_cls": "nemo_rl.models.generation.vllm_backend.VllmInternalWorkerExtension",
