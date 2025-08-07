@@ -650,7 +650,11 @@ class MegatronPolicyWorker:
             ref_state = GlobalState()
             ref_state.cfg = ref_megatron_cfg
 
-            reference_model = get_model_from_config_no_float32(
+            if self.cfg["megatron_cfg"].get("deferred_fp32_logits", None):
+                ref_model_builder = get_model_from_config_no_float32
+            else:
+                ref_model_builder = get_model_from_config
+            reference_model = ref_model_builder(
                 self.megatron_cfg.model_config,
                 self.megatron_cfg.ddp_config,
                 use_torch_fsdp2=self.megatron_cfg.dist_config.use_torch_fsdp2,
