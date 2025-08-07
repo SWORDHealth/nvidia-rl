@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     futures = []
     for prompt, worker in zip(all_prompt_token_ids, workers):
-        futures.append(worker.generate.remote(prompt) for worker in workers)
+        futures.append(worker.generate.remote(prompt))
 
     responses = ray.get(futures)
 
