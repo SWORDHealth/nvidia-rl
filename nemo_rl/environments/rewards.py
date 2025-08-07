@@ -16,6 +16,7 @@ import re
 import numpy as np
 from math_verify.metric import math_metric
 from math_verify.parser import ExprExtractionConfig, LatexExtractionConfig
+from math_verify.errors import TimeoutException
 
 # initialize math_verify_func once
 math_verify_func = math_metric(
@@ -28,40 +29,40 @@ math_verify_func = math_metric(
 
 boxed = lambda x: "\\boxed{" + x + "}" if not x.startswith("\\boxed{") else x
 
-def math_expression_reward(ground_truth: str, response: str) -> tuple[float, bool]:
+def math_expression_reward(ground_truth: str, response: str, tag: str = "answer") -> tuple[float, bool]:
     '''
     Reward the agent for the following:
     - the answer within the <answer> tags is the same expression as the ground truth 
     '''
-    match = re.search(r"<answer>([\s\S]*)</answer>", response)
+    match = re.search(rf"<{tag}>([\s\S]*)</{tag}>", response)
     if match:
         answer = match.group(1)
         try:
             score, _ =  math_verify_func([boxed(ground_truth)], [boxed(answer)])
             return float(score), score > 0.1
-        except Exception as e:
+        except (Exception, TimeoutException) as e:
             return 0.0, False
     return 0.0, False
 
 
-def format_reward(ground_truth: str, response: str) -> tuple[float, Optional[bool]]:
+def format_reward(ground_truth: str, response: str, think_tag: str = "think", answer_tag: str = "answer") -> tuple[float, Optional[bool]]:
     '''
     Reward the agent for the following:
     - response follows the format: (.*) <think> (.*) </think> <answer> (.*) </answer>
     '''
     rew = 0.0
-    if re.search(r"<think>[\s\S]*</think>", response):
+    if re.search(rf"<{think_tag}>[\s\S]*</{think_tag}>", response):
         rew += 0.25  # 0.25 points for having think tags
-    if re.search(r"<answer>[\s\S]*</answer>", response):
+    if re.search(rf"<{answer_tag}>[\s\S]*</{answer_tag}>", response):
         rew += 0.75  # 0.75 points for having answer tags
     return rew, None
 
-def exact_answer_alphanumeric_reward(ground_truth: str, response: str) -> tuple[float, bool]:
+def exact_answer_alphanumeric_reward(ground_truth: str, response: str, answer_tag: str = "answer") -> tuple[float, bool]:
     '''
     Reward the agent for the following:
     - the answer within the <answer> tags is the same as the ground truth (case-insensitive)
     '''
-    match = re.search(r"<answer>([\s\S]*)</answer>", response)
+    match = re.search(rf"<{answer_tag}>([\s\S]*)</{answer_tag}>", response)
     if match:
         answer = match.group(1)
         # Remove all non-alphanumeric characters (including whitespace, punctuation, etc.)
@@ -71,11 +72,11 @@ def exact_answer_alphanumeric_reward(ground_truth: str, response: str) -> tuple[
             return 1.0, True
     return 0.0, False
 
-def bbox_giou_reward(ground_truth: str, response: str, giou_penalty_thres: float = 10.0) -> tuple[float, bool]:
+def bbox_giou_reward(ground_truth: str, response: str, giou_penalty_thres: float = 10.0, answer_tag: str = "answer") -> tuple[float, bool]:
     '''
     Given [x1, y1, x2, y2] normalized bounding box coordinates, compute the GIoU between the ground truth and the response
     '''
-    match = re.search(r"<answer>([\s\S]*)</answer>", response)
+    match = re.search(rf"<{answer_tag}>([\s\S]*)</{answer_tag}>", response)
     if match:
         answer = match.group(1)
     else:

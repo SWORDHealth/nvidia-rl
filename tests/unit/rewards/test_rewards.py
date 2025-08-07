@@ -56,6 +56,51 @@ def test_format_reward():
     assert reward == 0.0
     assert is_correct is None
 
+def test_format_reward_custom_tags():
+    ground_truth = "does_not_matter"
+
+    # Both tags in response and reward function match
+    response = "<think_trace>Reasoning here</think_trace> <solution>42</solution>"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 1.0
+    assert is_correct is None
+
+    # Only think tag present, tags match
+    response = "<think_trace>Reasoning here</think_trace>"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 0.25
+    assert is_correct is None
+
+    # Only answer tag present, tags match
+    response = "<solution>42</solution>"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 0.75
+    assert is_correct is None
+
+    # Neither tag present, tags match
+    response = "No tags here"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 0.0
+    assert is_correct is None
+
+    # Tags in response do not match those in reward function (should yield 0.0)
+    response = "<think>Reasoning here</think> <answer>42</answer>"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 0.0
+    assert is_correct is None
+
+    # Mixed: one tag matches, one does not (should yield 0.25 for think_trace, 0 for solution)
+    response = "<think_trace>Reasoning here</think_trace> <answer>42</answer>"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 0.25
+    assert is_correct is None
+
+    # Mixed: one tag matches, one does not (should yield 0.75 for solution, 0 for think_trace)
+    response = "<think>Reasoning here</think> <solution>42</solution>"
+    reward, is_correct = format_reward(ground_truth, response, think_tag="think_trace", answer_tag="solution")
+    assert reward == 0.75
+    assert is_correct is None
+
 def test_exact_answer_alphanumeric_reward():
     ground_truth = "Hello123"
     
