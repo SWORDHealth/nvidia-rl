@@ -66,7 +66,10 @@ def math_data_processor(
     )
     user_message["token_ids"] = tokenizer(message, return_tensors="pt")["input_ids"][0]
     if tokenizer.bos_token_id == user_message["token_ids"][0] == user_message["token_ids"][1]:
+        # This is an attempt to remove bos if two are detected.
+        # General solution is tracked here https://github.com/NVIDIA-NeMo/RL/issues/855
         user_message["token_ids"] = tokenizer(message, return_tensors="pt", add_special_tokens=False)["input_ids"][0]
+    assert tokenizer.bos_token_id == user_message["token_ids"][0] == user_message["token_ids"][1], f"Still encountering double-bos. Please raise your tokenizer in https://github.com/NVIDIA-NeMo/RL/issues/855."
     user_message["content"] = message
     message_log.append(user_message)
 
