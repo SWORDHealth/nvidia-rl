@@ -1,7 +1,5 @@
 import json
 
-import os
-
 import ray
 
 from vllm import LLM, SamplingParams
@@ -14,8 +12,8 @@ class VLLMWorker:
 
         self.llm = LLM(**llm_kwargs)
 
-    def generate(self, prompt: str):
-        outputs = self.llm.generate(prompt, self.sampling_params)
+    def generate(self, prompt_token_ids: list[int]):
+        outputs = self.llm.generate(prompt_token_ids, self.sampling_params)
         return outputs[0].outputs[0].text
 
 
@@ -33,12 +31,14 @@ if __name__ == "__main__":
         worker = VLLMWorker.options(num_gpus=TENSOR_PARALLEL_SIZE).remote(llm_kwargs, sampling_params)
         workers.append(worker)
 
-    prompt = "Explain Ray in one sentence."
-    futures = [worker.generate.remote(prompt) for worker in workers]
+    with open("prompt_token_ids.json") as f:
+        all_prompt_token_ids = json.load(f)
+
+    futures = []
+    for prompt, worker in zip(all_prompt_token_ids, workers):
+        futures.append(worker.generate.remote(prompt) for worker in workers)
+
     responses = ray.get(futures)
 
     for i, r in enumerate(responses):
         print(f"[GPU {i}] {r}")
-
-    with open("prompt_token_ids.json") as f:
-        all_prompt_token_ids = json.load(f)
