@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Optional
 import os
 import tempfile
+from typing import Optional
 
 import pytest
 import torch
@@ -567,11 +567,23 @@ def logprob_setup(request):
     """Setup and teardown specifically for logprob tests."""
     # Parse parameters: (num_gpus, tp, pp, model_fixture_name)
     if hasattr(request, "param") and request.param is not None:
-        num_gpus, tp, pp, logprob_chunk_size, deferred_fp32_logits, model_fixture_name = request.param
+        (
+            num_gpus,
+            tp,
+            pp,
+            logprob_chunk_size,
+            deferred_fp32_logits,
+            model_fixture_name,
+        ) = request.param
     else:
-        num_gpus, tp, pp, logprob_chunk_size, deferred_fp32_logits, model_fixture_name = (
-            2, 1, 1, None, None, "tiny_llama_model_path"
-        )
+        (
+            num_gpus,
+            tp,
+            pp,
+            logprob_chunk_size,
+            deferred_fp32_logits,
+            model_fixture_name,
+        ) = (2, 1, 1, None, None, "tiny_llama_model_path")
 
     # Get the actual model path from the requested fixture
     model_name = request.getfixturevalue(model_fixture_name)
