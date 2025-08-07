@@ -12,9 +12,14 @@ class VLLMWorker:
 
         self.llm = LLM(**llm_kwargs)
 
-    def generate(self, prompt_token_ids: list[int]):
-        outputs = self.llm.generate(prompt_token_ids, self.sampling_params)
-        return outputs[0].outputs[0].text
+    def generate(self, prompt: dict[str, list[int]]):
+        input_text = self.llm.get_tokenizer().decode(prompt["prompt_token_ids"])
+        outputs = self.llm.generate(prompt, self.sampling_params)
+
+        return {
+            "input_text": input_text,
+            "output_text": outputs[0].outputs[0].text,
+        }
 
 
 if __name__ == "__main__":
@@ -40,5 +45,5 @@ if __name__ == "__main__":
 
     responses = ray.get(futures)
 
-    for i, r in enumerate(responses):
-        print(f"[GPU {i}] {r}")
+    with open("temp.json", "w") as f:
+        json.dump(responses, f, indent=4)
