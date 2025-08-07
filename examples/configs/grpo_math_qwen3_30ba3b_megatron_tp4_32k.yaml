@@ -15,10 +15,6 @@ grpo:
   # val_batch_size: 256
   val_num_generations_per_prompt: 16
 
-loss_fn:
-  sequence_level_importance_sampling: False
-  sequence_level_ratio_clip: False
-
 policy:
   model_name: "Qwen/Qwen3-30B-A3B"
   tokenizer:
