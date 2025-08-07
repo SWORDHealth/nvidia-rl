@@ -20,6 +20,7 @@ import sys
 import uuid
 from collections import defaultdict
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncGenerator,
     NotRequired,
@@ -28,6 +29,9 @@ from typing import (
     Union,
     cast,
 )
+
+if TYPE_CHECKING:
+    from vllm.sampling_params import GuidedDecodingParams
 
 import numpy as np
 import ray
@@ -87,7 +91,7 @@ class VllmGenerationWorker:
 
     def _get_vllm_guided_decoding_params(
         self, guided_decoding_config: Optional[GuidedDecodingConfig]
-    ) -> Optional["GuidedDecodingParams"]:  # noqa: F821
+    ) -> Optional["GuidedDecodingParams"]:
         """Get the guided decoding parameters for vLLM."""
         from vllm.sampling_params import GuidedDecodingParams
 
