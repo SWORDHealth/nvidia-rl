@@ -424,6 +424,21 @@ class VllmGenerationWorker:
             max_new_tokens if max_new_tokens is not None else self.cfg["max_new_tokens"]
         )
 
+        import os, json
+        with open(f"temp_sampling_params_{os.getenv("LOCAL_RANK")}.json", "w") as f:
+            json.dump(
+                dict(
+                    temperature=temperature,
+                    top_p=self.cfg["top_p"],
+                    top_k=top_k_val,
+                    max_tokens=max_tokens,
+                    logprobs=0,
+                    stop_token_ids=self.cfg["stop_token_ids"],
+                    stop=stop_strings,
+                    include_stop_str_in_output=True,
+                ), f, indent=4
+            )
+
         return self.SamplingParams(
             temperature=temperature,
             top_p=self.cfg["top_p"],
@@ -499,9 +514,8 @@ class VllmGenerationWorker:
         )
         import json
         import os
-        sampling_params_dict = {f: getattr(sampling_params, f) for f in sampling_params.__struct_fields__}
-        with open(f"temp_{os.getenv("LOCAL_RANK")}.json", "w") as f:
-            json.dump({"prompts": prompts, "sampling_params": sampling_params_dict}, f, indent=4)
+        with open(f"temp_prompts_{os.getenv("LOCAL_RANK")}.json", "w") as f:
+            json.dump(prompts, f, indent=4)
         outputs = self.llm.generate(prompts, sampling_params)
 
         # Process the outputs - but preserve the original input padding structure
