@@ -499,8 +499,9 @@ class VllmGenerationWorker:
         )
         import json
         import os
+        sampling_params_dict = {f: getattr(sampling_params, f) for f in sampling_params.__struct_fields__}
         with open(f"temp_{os.getenv("LOCAL_RANK")}.json", "w") as f:
-            json.dump({"prompts": prompts, "sampling_params": dict(sampling_params)}, f, indent=4)
+            json.dump({"prompts": prompts, "sampling_params": sampling_params_dict}, f, indent=4)
         outputs = self.llm.generate(prompts, sampling_params)
 
         # Process the outputs - but preserve the original input padding structure
