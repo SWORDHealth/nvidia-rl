@@ -10,7 +10,7 @@ from vllm import LLM, SamplingParams
 @ray.remote
 class VLLMWorker:
     def __init__(self, llm_kwargs: dict, env_vars: dict, sampling_params: dict):
-        self.sampling_params = SamplingParams(**self.sampling_params)
+        self.sampling_params = SamplingParams(**sampling_params)
 
         print("Initial CUDA_VISIBLE_DEVICES", os.environ.get("CUDA_VISIBLE_DEVICES"))
         for k, v in env_vars.items():
