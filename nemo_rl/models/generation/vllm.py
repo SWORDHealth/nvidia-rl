@@ -1646,7 +1646,7 @@ class VllmGeneration(GenerationInterface):
         for i in range(0, len(lengths), 8):
             counts_gt_1 = [t for t in Counter(lengths[i:i+8]).most_common() if t[1] > 1]
             total_dupes += sum(t[1] - 1 for t in counts_gt_1)
-            print(counts_gt_1, Counter(total_lengths[i: i+8]), [t[1] for t in Counter(output_ids).most_common()])
+            print(counts_gt_1, Counter(total_lengths[i: i+8]), [t[1] for t in Counter(output_ids).most_common() if t[1] > 1])
         print(f"{100 * total_dupes / len(lengths):.2f}%")
 
         # Verify the output has all required fields
