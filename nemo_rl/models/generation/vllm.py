@@ -483,7 +483,8 @@ class VllmGenerationWorker:
         # Prepare prompts for vLLM (removing padding)
         prompts = []
 
-        for i in range(batch_size):
+        sampling_params.n = 16
+        for i in range(0, batch_size, sampling_params.n):
             # Use input_lengths to get only valid tokens (not padding)
             valid_length = input_lengths[i].item()
             valid_ids = (
@@ -493,18 +494,33 @@ class VllmGenerationWorker:
 
             prompts.append({"prompt_token_ids": token_ids})
 
-        from random import randint
-        batch_sampling_params = []
-        for _ in range(len(prompts)):
-            this_prompt_sampling_params = sampling_params.clone()
-            this_prompt_sampling_params.seed = randint(0, 10000)
-            batch_sampling_params.append(this_prompt_sampling_params)
-
         # Generate outputs
         assert self.llm is not None, (
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
         )
-        outputs = self.llm.generate(prompts, batch_sampling_params)
+        beamed_outputs = self.llm.generate(prompts, sampling_params)
+
+        from vllm.outputs import RequestOutput
+        outputs = []
+        for beamed_output in beamed_outputs:
+            outputs.extend(
+                RequestOutput(
+                    request_id=beamed_output.request_id,
+                    prompt=beamed_output.prompt,
+                    prompt_token_ids=beamed_output.prompt_token_ids,
+                    prompt_logprobs=beamed_output.prompt_logprobs,
+                    outputs=[beamed_output.outputs[i]],
+                    finished=beamed_output.finished,
+                    metrics=beamed_output.metrics,
+                    lora_request=beamed_output.lora_request,
+                    encoder_prompt=beamed_output.encoder_prompt,
+                    encoder_prompt_token_ids=beamed_output.encoder_prompt_token_ids,
+                    num_cached_tokens=beamed_output.num_cached_tokens,
+                    multi_modal_placeholders=beamed_output.multi_modal_placeholders,
+                    kv_transfer_params=beamed_output.kv_transfer_params,
+                )
+                for i in range(sampling_params.n)
+            )
 
         # Process the outputs - but preserve the original input padding structure
         output_ids_list = []
