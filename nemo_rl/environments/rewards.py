@@ -32,7 +32,9 @@ boxed = lambda x: "\\boxed{" + x + "}" if not x.startswith("\\boxed{") else x
 def math_expression_reward(ground_truth: str, response: str, tag: str = "answer") -> tuple[float, bool]:
     '''
     Reward the agent for the following:
-    - the answer within the <answer> tags is the same expression as the ground truth 
+    - the answer within the <{tag}> tags is the same expression as the ground truth 
+
+    The `tag` is customizable and must be specified as part of the user COT prompt text file. 
     '''
     match = re.search(rf"<{tag}>([\s\S]*)</{tag}>", response)
     if match:
@@ -49,6 +51,8 @@ def format_reward(ground_truth: str, response: str, think_tag: str = "think", an
     '''
     Reward the agent for the following:
     - response follows the format: (.*) <think> (.*) </think> <answer> (.*) </answer>
+
+    The `think_tag` and `answer_tag` are customizable and must be specified as part of the user COT prompt text file. 
     '''
     rew = 0.0
     if re.search(rf"<{think_tag}>[\s\S]*</{think_tag}>", response):
@@ -60,7 +64,9 @@ def format_reward(ground_truth: str, response: str, think_tag: str = "think", an
 def exact_answer_alphanumeric_reward(ground_truth: str, response: str, answer_tag: str = "answer") -> tuple[float, bool]:
     '''
     Reward the agent for the following:
-    - the answer within the <answer> tags is the same as the ground truth (case-insensitive)
+    - the answer within the <{answer_tag}> tags is the same as the ground truth (case-insensitive)
+
+    The `answer_tag` is customizable and must be specified as part of the user COT prompt text file. 
     '''
     match = re.search(rf"<{answer_tag}>([\s\S]*)</{answer_tag}>", response)
     if match:
@@ -74,7 +80,9 @@ def exact_answer_alphanumeric_reward(ground_truth: str, response: str, answer_ta
 
 def bbox_giou_reward(ground_truth: str, response: str, giou_penalty_thres: float = 10.0, answer_tag: str = "answer") -> tuple[float, bool]:
     '''
-    Given [x1, y1, x2, y2] normalized bounding box coordinates, compute the GIoU between the ground truth and the response
+    Given [x1, y1, x2, y2] normalized bounding box coordinates within the <{answer_tag}> tags, compute the GIoU between the ground truth and the response
+
+    The `answer_tag` is customizable and must be specified as part of the user COT prompt text file. 
     '''
     match = re.search(rf"<{answer_tag}>([\s\S]*)</{answer_tag}>", response)
     if match:
