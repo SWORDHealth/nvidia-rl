@@ -152,7 +152,32 @@ sys.path.insert(0, os.path.abspath(".."))
 
 # Conditional autodoc2 configuration - only enable if packages exist
 autodoc2_packages_list = [
-    "../nemo_rl",  # Path to your package relative to conf.py
+    # Core package
+    "../nemo_rl",
+    # Algorithms
+    "../nemo_rl/algorithms",
+    # Converters
+    "../nemo_rl/converters",
+    "../nemo_rl/converters/huggingface",
+    "../nemo_rl/converters/megatron",
+    # Data handling
+    "../nemo_rl/data",
+    "../nemo_rl/data/hf_datasets",
+    # Distributed computing
+    "../nemo_rl/distributed",
+    # Environments
+    "../nemo_rl/environments",
+    "../nemo_rl/environments/games",
+    # Evaluation
+    "../nemo_rl/evals",
+    # Experience management
+    "../nemo_rl/experience",
+    # Metrics
+    "../nemo_rl/metrics",
+    # Models
+    "../nemo_rl/models",
+    # Utilities
+    "../nemo_rl/utils",
 ]
 
 # Check if any of the packages actually exist before enabling autodoc2

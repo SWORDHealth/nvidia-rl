@@ -362,6 +362,7 @@ api-docs/auto-generated.md
 :caption: References
 :maxdepth: 2
 references/index
+references/apidocs/index.rst
 references/configuration-reference
 references/cli-reference
 ::::
