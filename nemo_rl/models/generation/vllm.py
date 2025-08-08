@@ -1631,6 +1631,15 @@ class VllmGeneration(GenerationInterface):
             results, pad_value_dict={"output_ids": self.cfg["pad_token_id"]}
         )
 
+        from collections import Counter
+        lengths = data["generation_lengths"]
+        total_dupes = 0
+        for i in range(0, len(lengths), 16):
+            counts_gt_1 = [t for t in Counter(lengths[i:i+16]).most_common() if t[1] > 1]
+            total_dupes += sum(t[1] - 1 for t in counts_gt_1)
+            print(counts_gt_1)
+        print(f"{100 * total_dupes / len(lengths):.2f}%")
+
         # Verify the output has all required fields
         required_keys = [
             "output_ids",
