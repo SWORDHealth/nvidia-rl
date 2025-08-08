@@ -1640,11 +1640,12 @@ class VllmGeneration(GenerationInterface):
         from collections import Counter
         lengths = combined["generation_lengths"].tolist()
         total_lengths = combined["unpadded_sequence_lengths"].tolist()
+        output_ids = combined["output_ids"].tolist()
         total_dupes = 0
         for i in range(0, len(lengths), 8):
             counts_gt_1 = [t for t in Counter(lengths[i:i+8]).most_common() if t[1] > 1]
             total_dupes += sum(t[1] - 1 for t in counts_gt_1)
-            print(counts_gt_1, Counter(total_lengths[i: i+8]))
+            print(counts_gt_1, Counter(total_lengths[i: i+8]), [t[1] for t in Counter(output_ids).most_common()])
         print(f"{100 * total_dupes / len(lengths):.2f}%")
 
         # Verify the output has all required fields
