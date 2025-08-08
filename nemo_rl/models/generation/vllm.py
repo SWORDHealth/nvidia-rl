@@ -493,18 +493,11 @@ class VllmGenerationWorker:
 
             prompts.append({"prompt_token_ids": token_ids})
 
-        from random import randint
-        batch_sampling_params = []
-        for _ in range(batch_size):
-            this_prompt_sampling_params = sampling_params.clone()
-            # this_prompt_sampling_params.seed = randint(0, 10000)
-            batch_sampling_params.append(this_prompt_sampling_params)
-
         # Generate outputs
         assert self.llm is not None, (
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
         )
-        outputs = self.llm.generate(prompts, batch_sampling_params)
+        outputs = self.llm.generate(prompts, sampling_params)
 
         # Process the outputs - but preserve the original input padding structure
         output_ids_list = []
@@ -1636,18 +1629,6 @@ class VllmGeneration(GenerationInterface):
         combined: BatchedDataDict[GenerationOutputSpec] = BatchedDataDict.from_batches(
             results, pad_value_dict={"output_ids": self.cfg["pad_token_id"]}
         )
-
-        from collections import Counter
-        import json
-        lengths = combined["generation_lengths"].tolist()
-        total_lengths = combined["unpadded_sequence_lengths"].tolist()
-        output_ids = list(map(json.dumps, combined["output_ids"].tolist()))
-        total_dupes = 0
-        for i in range(0, len(lengths), 8):
-            counts_gt_1 = [t for t in Counter(lengths[i:i+8]).most_common() if t[1] > 1]
-            total_dupes += sum(t[1] - 1 for t in counts_gt_1)
-            print(counts_gt_1, Counter(total_lengths[i: i+8]), [t[1] for t in Counter(output_ids).most_common() if t[1] > 1])
-        print(f"{100 * total_dupes / len(lengths):.2f}%")
 
         # Verify the output has all required fields
         required_keys = [
