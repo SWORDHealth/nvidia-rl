@@ -322,6 +322,7 @@ class VllmGenerationWorker:
         if ModelFlag.VLLM_LOAD_FORMAT_AUTO.matches(self.model_name):
             load_format = "auto"
 
+        from random import randint
         llm_kwargs = dict(
             model=self.model_name,
             load_format=load_format,
@@ -333,7 +334,7 @@ class VllmGenerationWorker:
             gpu_memory_utilization=self.gpu_memory_utilization,
             enable_prefix_caching=torch.cuda.get_device_capability()[0] >= 8,
             dtype=self.cfg["vllm_cfg"]["precision"],
-            seed=seed,
+            seed=randint(0, 1000),
             enforce_eager=self.cfg["vllm_cfg"]["enforce_eager"],
             max_model_len=self.cfg["vllm_cfg"]["max_model_len"],
             trust_remote_code=True,
