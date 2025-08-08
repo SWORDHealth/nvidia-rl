@@ -75,7 +75,7 @@ policy:
     moe_router_bias_update_rate: 0.0 # by default, disable bias updates for grpo
     apply_rope_fusion: True
     activation_checkpointing: True
-    deferred_fp32_logits: True
+    defer_fp32_logits: True
 
     optimizer:
       optimizer: "adam"

@@ -42,7 +42,7 @@ def create_megatron_test_config(
     sequence_parallel: bool = False,
     converter_type: str = "LlamaForCausalLM",
     logprob_chunk_size: Optional[int] = None,
-    deferred_fp32_logits: Optional[bool] = None,
+    defer_fp32_logits: Optional[bool] = None,
 ) -> PolicyConfig:
     """Create a test config for Megatron policy worker."""
     return {
@@ -99,7 +99,7 @@ def create_megatron_test_config(
             "moe_router_load_balancing_type": "none",
             "moe_router_bias_update_rate": 0.0,
             "apply_rope_fusion": True,
-            "deferred_fp32_logits": deferred_fp32_logits,
+            "defer_fp32_logits": defer_fp32_logits,
             "optimizer": {
                 "optimizer": "adam",
                 "lr": 5.0e-6,
@@ -572,7 +572,7 @@ def logprob_setup(request):
             tp,
             pp,
             logprob_chunk_size,
-            deferred_fp32_logits,
+            defer_fp32_logits,
             model_fixture_name,
         ) = request.param
     else:
@@ -581,7 +581,7 @@ def logprob_setup(request):
             tp,
             pp,
             logprob_chunk_size,
-            deferred_fp32_logits,
+            defer_fp32_logits,
             model_fixture_name,
         ) = (2, 1, 1, None, None, "tiny_llama_model_path")
 
@@ -619,7 +619,7 @@ def logprob_setup(request):
             pp=pp,
             converter_type=converter_type,
             logprob_chunk_size=logprob_chunk_size,
-            deferred_fp32_logits=deferred_fp32_logits,
+            defer_fp32_logits=defer_fp32_logits,
         )
         tokenizer = get_tokenizer(config["tokenizer"])
         config["generation"] = configure_generation_config(
