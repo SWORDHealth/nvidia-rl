@@ -129,7 +129,11 @@ policy:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: "squad"
+  dataset_name: "prompt_response_dataset"
+  train_data_path: "/workspace/data/gsm8k/train.jsonl"
+  val_data_path: "/workspace/data/gsm8k/test.jsonl"
+  input_key: "question"
+  output_key: "answer"
   add_bos: true
   add_eos: true
   add_generation_prompt: false
