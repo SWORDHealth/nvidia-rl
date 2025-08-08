@@ -521,6 +521,7 @@ class VllmGenerationWorker:
                 )
                 for i in range(sampling_params.n)
             )
+        assert len(outputs) == len(input_lengths)
 
         # Process the outputs - but preserve the original input padding structure
         output_ids_list = []
