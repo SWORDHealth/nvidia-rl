@@ -38,9 +38,8 @@ AUTOMODEL_FACTORY["mistral3"] = AutoModelForImageTextToText
 AUTOMODEL_FACTORY["llama4"] = AutoModelForImageTextToText
 
 def resolve_model_class(model_name: str) -> nn.Module:
-    for model_substr in AUTOMODEL_FACTORY.keys():
-        if model_substr in model_name.lower():
-            return AUTOMODEL_FACTORY[model_substr]
+    if model_name.lower() in AUTOMODEL_FACTORY.keys():
+        return AUTOMODEL_FACTORY[model_name.lower()]
     return AutoModelForCausalLM
 
 
