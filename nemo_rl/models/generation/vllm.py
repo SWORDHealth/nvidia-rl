@@ -1632,7 +1632,7 @@ class VllmGeneration(GenerationInterface):
         )
 
         from collections import Counter
-        lengths = data["generation_lengths"]
+        lengths = combined["generation_lengths"].tolist()
         total_dupes = 0
         for i in range(0, len(lengths), 16):
             counts_gt_1 = [t for t in Counter(lengths[i:i+16]).most_common() if t[1] > 1]
