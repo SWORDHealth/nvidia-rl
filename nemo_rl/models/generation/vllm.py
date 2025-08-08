@@ -500,6 +500,8 @@ class VllmGenerationWorker:
             this_prompt_sampling_params.seed = randint(0, 10000)
             batch_sampling_params.append(this_prompt_sampling_params)
 
+        print(batch_sampling_params)
+
         # Generate outputs
         assert self.llm is not None, (
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
