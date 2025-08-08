@@ -65,6 +65,7 @@ class VLMVerifyWorker:
             reward_func_name: str = reward_func_cfg["name"]
             reward_func_weight: float = reward_func_cfg["weight"]
             reward_func_kwargs: Optional[dict] = reward_func_cfg.get("kwargs", None)
+            reward_func: Callable[[str, str], tuple[float, Optional[bool]]]
             if reward_func_name == "format":
                 reward_func = format_reward
             elif reward_func_name == "exact_alnum":
