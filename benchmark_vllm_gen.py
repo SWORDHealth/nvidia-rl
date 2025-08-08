@@ -8,13 +8,13 @@ from vllm import LLM, SamplingParams
 @ray.remote
 class VLLMWorker:
     def __init__(self, llm_kwargs: dict, sampling_params: dict):
-        self.sampling_params = SamplingParams(**sampling_params)
+        self.sampling_params_dict = sampling_params
 
         self.llm = LLM(**llm_kwargs)
 
-    def generate(self, prompt: dict[str, list[int]]):
+    def generate(self, prompt: dict[str, list[int]], sampling_params: dict):
         input_text = self.llm.get_tokenizer().decode(prompt["prompt_token_ids"])
-        outputs = self.llm.generate(prompt, self.sampling_params)
+        outputs = self.llm.generate(prompt, SamplingParams(**(self.sampling_params_dict | sampling_params)))
 
         return {
             "input_text": input_text,
@@ -40,8 +40,8 @@ if __name__ == "__main__":
         all_prompt_token_ids = json.load(f)
 
     futures = []
-    for prompt, worker in zip(all_prompt_token_ids, workers):
-        futures.append(worker.generate.remote({"prompt_token_ids": prompt}))
+    for i, (prompt, worker) in enumerate(zip(all_prompt_token_ids, workers)):
+        futures.append(worker.generate.remote({"prompt_token_ids": prompt}, {"seed": i}))
 
     responses = ray.get(futures)
 
