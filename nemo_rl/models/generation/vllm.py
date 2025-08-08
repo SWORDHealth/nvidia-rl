@@ -497,7 +497,7 @@ class VllmGenerationWorker:
         batch_sampling_params = []
         for _ in range(batch_size):
             this_prompt_sampling_params = sampling_params.clone()
-            this_prompt_sampling_params.seed = randint(0, 10000)
+            # this_prompt_sampling_params.seed = randint(0, 10000)
             batch_sampling_params.append(this_prompt_sampling_params)
 
         # Generate outputs
