@@ -97,7 +97,7 @@ def download_and_unzip(url: str, target_directory: str, subdir_name: str = "."):
         # print(f"Removed downloaded zip file: {filepath}")
         pass
 
-def format_refcoco_dataset(example: dict[str, Any], width: int = 448 , height: int = 448, caption_type: str = 'random') -> dict[str, Any]:
+def format_refcoco_dataset(example: dict[str, Any], width: int = 448 , height: int = 448, caption_type: str = 'random', prompt_file: Optional[str] = None) -> dict[str, Any]:
     """
     Format the RefCOCO dataset from huggingface.
 

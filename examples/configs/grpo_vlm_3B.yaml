@@ -39,7 +39,7 @@ policy:
   train_micro_batch_size: 1
   generation_batch_size: 32 # Only used when generating using HF backend
   logprob_batch_size: 4
-  max_total_sequence_length: 3072
+  max_total_sequence_length: 2048
   precision: "bfloat16"
   fsdp_offload_enabled: false
   activation_checkpointing_enabled: false
@@ -83,7 +83,7 @@ policy:
   optimizer:
     name: "torch.optim.AdamW"
     kwargs:
-      lr: 5.0e-6
+      lr: 5e-7
       weight_decay: 0.01
       betas: [0.9, 0.999]
       eps: 1e-8

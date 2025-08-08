@@ -3,6 +3,10 @@
 defaults:
   - grpo-qwen2.5-vl-3b-instruct-clevr-1n2g-dtensor2tp1.v1.yaml
 
+grpo:
+  num_prompts_per_step: 64
+  num_generations_per_prompt: 64
+
 checkpointing:
   enabled: true
   checkpoint_dir: "results/geometry3k_grpo_${policy.model_name}" 
@@ -12,6 +16,10 @@ checkpointing:
   save_period: 10
 
 policy:
+
+  train_global_batch_size: 512
+  logprob_batch_size: 2
+
   max_total_sequence_length: 2048
   generation:
     backend: "vllm"

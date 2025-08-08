@@ -36,7 +36,6 @@ def pil_to_base64(image: Image.Image, format: str = "PNG") -> str:
     buffered = io.BytesIO()
     image.save(buffered, format=format)
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    # append data:image/png;base64,
     return f"data:image/png;base64,{img_str}"
 
 def format_answer_fromtags(answer: str) -> str:
