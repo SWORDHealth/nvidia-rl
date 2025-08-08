@@ -27,7 +27,7 @@ PARTITION = os.environ["PARTITION"]
 LOG_DIR = os.environ["LOG"] + "/nemo-rl"
 WORKSPACE = os.environ["WORKSPACE"]
 CONTAINER = os.environ["CON"] + "/nemo_rl_base.sqsh"
-MOUNTS = f"/lustre:/lustre,/workspace:{WORKSPACE}"
+MOUNTS = f"/lustre:/lustre,{WORKSPACE}:/workspace"
 
 def parse_args():
     """Parse command line arguments."""
