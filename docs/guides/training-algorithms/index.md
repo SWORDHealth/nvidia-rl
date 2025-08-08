@@ -232,7 +232,7 @@ python -m nemo_rl.eval --config eval_config.yaml
 ## Get Help
 
 - [Troubleshooting](../troubleshooting) - Common training issues and solutions
-- [API Documentation](../../../api-docs/index) - Complete algorithm documentation
+- [API Documentation](../../../api/index) - Complete algorithm documentation
 - [Configuration Reference](../../../references/configuration-reference) - Training parameters
 - [Community Support](https://github.com/NVIDIA/NeMo-RL/issues) - GitHub discussions
 

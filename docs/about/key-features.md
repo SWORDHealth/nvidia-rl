@@ -82,5 +82,5 @@ Backends are configurable and interchangeable without altering core algorithm lo
 
 ---
 
-For more details, see the [API Documentation](../api-docs/index), [Guides](../guides/index), and [Core Design and Architecture](../core-design/index).
+For more details, see the [API Documentation](../api/index), [Guides](../guides/index), and [Core Design and Architecture](../core-design/index).
 

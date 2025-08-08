@@ -132,14 +132,14 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
    :caption: API Modules
    :hidden:
 
-   api/nemo_rl/nemo_rl
-   api/algorithms/algorithms
-   api/data/data
-   api/environments/environments
-   api/distributed/distributed
-   api/experience/experience
-   api/evals/evals
-   api/utils/utils
-   api/converters/converters
-   api/metrics/metrics
+   nemo_rl/nemo_rl
+   algorithms/algorithms
+   data/data
+   environments/environments
+   distributed/distributed
+   experience/experience
+   evals/evals
+   utils/utils
+   converters/converters
+   metrics/metrics
    api/models/models

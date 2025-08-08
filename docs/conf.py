@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.abspath('_extensions'))
 project = "NeMo RL"
 copyright = "2025, NVIDIA Corporation"
 author = "NVIDIA Corporation"
-release = " 0.2.1"
+release = "0.2.1"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -63,17 +63,31 @@ exclude_patterns = [
 ]
 
 # -- Options for Intersphinx -------------------------------------------------
-# Cross-references to external NVIDIA documentation
+# Cross-references to external documentation
 intersphinx_mapping = {
-    "ctk": ("https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest", None),
-    "gpu-op": ("https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest", None),
-    "ngr-tk": ("https://docs.nvidia.com/nemo/guardrails/latest", None),
-    "nim-cs": ("https://docs.nvidia.com/nim/llama-3-1-nemoguard-8b-contentsafety/latest/", None),
-    "nim-tc": ("https://docs.nvidia.com/nim/llama-3-1-nemoguard-8b-topiccontrol/latest/", None),
-    "nim-jd": ("https://docs.nvidia.com/nim/nemoguard-jailbreakdetect/latest/", None),
-    "nim-llm": ("https://docs.nvidia.com/nim/large-language-models/latest/", None),
-    "driver-linux": ("https://docs.nvidia.com/datacenter/tesla/driver-installation-guide", None),
-    "nim-op": ("https://docs.nvidia.com/nim-operator/latest", None),
+    # Core Python and scientific libraries
+    "python": ("https://docs.python.org/3", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy", None),
+    
+    # Deep learning frameworks
+    "torch": ("https://pytorch.org/docs/stable", None),
+    "transformers": ("https://huggingface.co/docs/transformers", None),
+    "datasets": ("https://huggingface.co/docs/datasets", None),
+    
+    # Reinforcement learning libraries
+    "gymnasium": ("https://gymnasium.farama.org", None),
+    "stable-baselines3": ("https://stable-baselines3.readthedocs.io/en/master", None),
+    "ray": ("https://docs.ray.io/en/latest", None),
+    "ray-rllib": ("https://docs.ray.io/en/latest/rllib", None),
+    
+    # NVIDIA ecosystem
+    "nemo": ("https://docs.nvidia.com/nemo", None),
+    "megatron": ("https://nvidia.github.io/Megatron-LM", None),
+    
+    # Other relevant libraries
+    "wandb": ("https://docs.wandb.ai", None),
+    "tensorboard": ("https://www.tensorflow.org/tensorboard", None),
 }
 
 # Intersphinx timeout for slow connections
@@ -193,6 +207,8 @@ if autodoc2_packages:
 
     autodoc2_render_plugin = "myst"  # Use MyST for rendering docstrings
     autodoc2_output_dir = "api"  # Output directory for autodoc2 (relative to docs/)
+    # Use custom index template so API landing page renders with grid cards
+    autodoc2_index_template = "_templates/autodoc2_index.rst"
     
     # Exclude problematic files and modules
     autodoc2_exclude_files = [

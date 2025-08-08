@@ -1065,7 +1065,7 @@ After completing this tutorial:
 ## Related Resources
 
 - **[Distributed Training Guide](../../../advanced/performance/distributed-training)**: Distributed training fundamentals
-- **[Ray Distributed Computing](../../api-docs/distributed)**: Ray distributed computing documentation
+- **[Ray Distributed Computing](../../api/distributed/distributed)**: Ray distributed computing documentation
 - **[Cluster Setup Guide](../../get-started/cluster)**: Cluster setup and management
 - **[Performance Optimization](../../../advanced/performance/index)**: Performance optimization techniques
 

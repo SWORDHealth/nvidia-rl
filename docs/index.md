@@ -159,7 +159,7 @@ Command-line interface commands and usage patterns.
 :::
 
 :::{grid-item-card} {octicon}`code;1.5em;sd-mr-1` API Documentation
-:link: api-docs/index
+   :link: api-docs/index
 :link-type: doc
 
 Comprehensive API documentation for all NeMo RL components.
@@ -350,7 +350,11 @@ advanced/research/index
 :hidden:
 :caption: API Documentation
 :maxdepth: 2
-api/index.rst
+api-docs/index
+api-docs/distributed
+api-docs/converters
+api-docs/models
+api-docs/auto-generated
 ::::
 
 ::::{toctree}
