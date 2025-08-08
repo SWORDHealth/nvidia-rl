@@ -1629,9 +1629,6 @@ class VllmGeneration(GenerationInterface):
         combined: BatchedDataDict[GenerationOutputSpec] = BatchedDataDict.from_batches(
             results, pad_value_dict={"output_ids": self.cfg["pad_token_id"]}
         )
-        import json
-        with open("temp.json", "w") as f:
-            json.dump({k: v.tolist() for k, v in combined.items()}, f)
 
         # Verify the output has all required fields
         required_keys = [
