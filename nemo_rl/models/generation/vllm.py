@@ -424,7 +424,6 @@ class VllmGenerationWorker:
             max_new_tokens if max_new_tokens is not None else self.cfg["max_new_tokens"]
         )
 
-        from random import randint
         return self.SamplingParams(
             temperature=temperature,
             top_p=self.cfg["top_p"],
@@ -434,7 +433,6 @@ class VllmGenerationWorker:
             stop_token_ids=self.cfg["stop_token_ids"],
             stop=stop_strings,
             include_stop_str_in_output=True,
-            seed=randint(0, 10000),
         )
 
     def generate(
@@ -495,11 +493,18 @@ class VllmGenerationWorker:
 
             prompts.append({"prompt_token_ids": token_ids})
 
+        from random import randint
+        batch_sampling_params = []
+        for _ in range(len(prompts)):
+            this_prompt_sampling_params = sampling_params.clone()
+            this_prompt_sampling_params.seed = randint(0, 10000)
+            batch_sampling_params.append(this_prompt_sampling_params)
+
         # Generate outputs
         assert self.llm is not None, (
             "Attempting to generate with either an uninitialized vLLM or non-model-owner"
         )
-        outputs = self.llm.generate(prompts, sampling_params)
+        outputs = self.llm.generate(prompts, batch_sampling_params)
 
         # Process the outputs - but preserve the original input padding structure
         output_ids_list = []
