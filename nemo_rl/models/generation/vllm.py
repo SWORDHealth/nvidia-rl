@@ -483,6 +483,20 @@ class VllmGenerationWorker:
         # Prepare prompts for vLLM (removing padding)
         prompts = []
 
+        all_token_ids: list[list[int]] = []
+        for i in range(0, batch_size, sampling_params.n):
+            # Use input_lengths to get only valid tokens (not padding)
+            valid_length = input_lengths[i].item()
+            valid_ids = (
+                input_ids[i, :valid_length] if valid_length > 0 else input_ids[i, :0]
+            )
+            token_ids = valid_ids.tolist()
+
+            all_token_ids.append(token_ids)
+        import os, json
+        with open(f"temp_token_ids_{os.getenv('LOCAL_RANK')}.json", "w") as f:
+            json.dump(all_token_ids, f, indent=4)
+
         sampling_params.n = 16
         for i in range(0, batch_size, sampling_params.n):
             # Use input_lengths to get only valid tokens (not padding)
