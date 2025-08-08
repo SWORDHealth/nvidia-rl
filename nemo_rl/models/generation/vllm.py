@@ -497,7 +497,7 @@ class VllmGenerationWorker:
         with open(f"temp_token_ids_{os.getenv('LOCAL_RANK')}.json", "w") as f:
             json.dump(all_token_ids, f, indent=4)
 
-        sampling_params.n = 16
+        sampling_params.n = 8
         for i in range(0, batch_size, sampling_params.n):
             # Use input_lengths to get only valid tokens (not padding)
             valid_length = input_lengths[i].item()
@@ -1671,8 +1671,8 @@ class VllmGeneration(GenerationInterface):
         from collections import Counter
         lengths = combined["generation_lengths"].tolist()
         total_dupes = 0
-        for i in range(0, len(lengths), 16):
-            counts_gt_1 = [t for t in Counter(lengths[i:i+16]).most_common() if t[1] > 1]
+        for i in range(0, len(lengths), 8):
+            counts_gt_1 = [t for t in Counter(lengths[i:i+8]).most_common() if t[1] > 1]
             total_dupes += sum(t[1] - 1 for t in counts_gt_1)
             print(counts_gt_1)
         print(f"{100 * total_dupes / len(lengths):.2f}%")
