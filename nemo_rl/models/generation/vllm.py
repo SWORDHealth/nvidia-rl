@@ -1638,9 +1638,10 @@ class VllmGeneration(GenerationInterface):
         )
 
         from collections import Counter
+        import json
         lengths = combined["generation_lengths"].tolist()
         total_lengths = combined["unpadded_sequence_lengths"].tolist()
-        output_ids = combined["output_ids"].tolist()
+        output_ids = list(map(json.dumps, combined["output_ids"].tolist()))
         total_dupes = 0
         for i in range(0, len(lengths), 8):
             counts_gt_1 = [t for t in Counter(lengths[i:i+8]).most_common() if t[1] > 1]
