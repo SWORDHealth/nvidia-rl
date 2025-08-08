@@ -35,18 +35,12 @@
 
 ### API
 
-`````{py:class} ModelFlag(*args, **kwds)
+`````{py:class} ModelFlag
 :canonical: nemo_rl.models.huggingface.common.ModelFlag
 
 Bases: {py:obj}`enum.Enum`
 
 ```{autodoc2-docstring} nemo_rl.models.huggingface.common.ModelFlag
-```
-
-```{rubric} Initialization
-```
-
-```{autodoc2-docstring} nemo_rl.models.huggingface.common.ModelFlag.__init__
 ```
 
 ````{py:attribute} SKIP_DTENSOR_TIED_WEIGHTS_CHECK

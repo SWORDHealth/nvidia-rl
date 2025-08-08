@@ -25,7 +25,7 @@
 
 ### API
 
-`````{py:class} LossType(*args, **kwds)
+`````{py:class} LossType
 :canonical: nemo_rl.algorithms.interfaces.LossType
 
 Bases: {py:obj}`enum.Enum`

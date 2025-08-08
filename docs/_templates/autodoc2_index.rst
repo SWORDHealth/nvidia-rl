@@ -7,7 +7,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
    :gutter: 3
 
    .. grid-item-card:: :octicon:`brain;1.5em;sd-mr-1` Core Package
-      :link: nemo_rl/nemo_rl
+      :link: api/nemo_rl/nemo_rl
       :link-type: doc
       :class-card: sd-border-0
 
@@ -18,7 +18,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`initialization` :bdg-secondary:`configuration` :bdg-secondary:`utilities`
 
    .. grid-item-card:: :octicon:`gear;1.5em;sd-mr-1` Algorithms
-      :link: nemo_rl/algorithms/nemo_rl.algorithms
+      :link: api/algorithms/algorithms
       :link-type: doc
       :class-card: sd-border-0
 
@@ -29,7 +29,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`DPO` :bdg-secondary:`GRPO` :bdg-secondary:`SFT` :bdg-secondary:`loss functions`
 
    .. grid-item-card:: :octicon:`database;1.5em;sd-mr-1` Data Management
-      :link: nemo_rl/data/nemo_rl.data
+      :link: api/data/data
       :link-type: doc
       :class-card: sd-border-0
 
@@ -40,7 +40,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`datasets` :bdg-secondary:`huggingface` :bdg-secondary:`processing` :bdg-secondary:`interfaces`
 
    .. grid-item-card:: :octicon:`globe;1.5em;sd-mr-1` Environments
-      :link: nemo_rl/environments/nemo_rl.environments
+      :link: api/environments/environments
       :link-type: doc
       :class-card: sd-border-0
 
@@ -51,7 +51,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`environments` :bdg-secondary:`games` :bdg-secondary:`math` :bdg-secondary:`interfaces`
 
    .. grid-item-card:: :octicon:`graph;1.5em;sd-mr-1` Distributed Computing
-      :link: nemo_rl/distributed/nemo_rl.distributed
+      :link: api/distributed/distributed
       :link-type: doc
       :class-card: sd-border-0
 
@@ -62,7 +62,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`distributed` :bdg-secondary:`ray` :bdg-secondary:`multi-gpu` :bdg-secondary:`collectives`
 
    .. grid-item-card:: :octicon:`play;1.5em;sd-mr-1` Experience Management
-      :link: nemo_rl/experience/nemo_rl.experience
+      :link: api/experience/experience
       :link-type: doc
       :class-card: sd-border-0
 
@@ -73,7 +73,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`rollouts` :bdg-secondary:`experience` :bdg-secondary:`trajectories` :bdg-secondary:`replay`
 
    .. grid-item-card:: :octicon:`chart-line;1.5em;sd-mr-1` Evaluation
-      :link: nemo_rl/evals/nemo_rl.evals
+      :link: api/evals/evals
       :link-type: doc
       :class-card: sd-border-0
 
@@ -84,7 +84,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`evaluation` :bdg-secondary:`metrics` :bdg-secondary:`assessment` :bdg-secondary:`performance`
 
    .. grid-item-card:: :octicon:`tools;1.5em;sd-mr-1` Utilities
-      :link: nemo_rl/utils/nemo_rl.utils
+      :link: api/utils/utils
       :link-type: doc
       :class-card: sd-border-0
 
@@ -95,7 +95,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`utilities` :bdg-secondary:`config` :bdg-secondary:`helpers` :bdg-secondary:`tools`
 
    .. grid-item-card:: :octicon:`arrow-left-right;1.5em;sd-mr-1` Converters
-      :link: nemo_rl/converters/nemo_rl.converters
+      :link: api/converters/converters
       :link-type: doc
       :class-card: sd-border-0
 
@@ -106,7 +106,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`huggingface` :bdg-secondary:`megatron` :bdg-secondary:`conversion` :bdg-secondary:`formats`
 
    .. grid-item-card:: :octicon:`bar-chart;1.5em;sd-mr-1` Metrics
-      :link: nemo_rl/metrics/nemo_rl.metrics
+      :link: api/metrics/metrics
       :link-type: doc
       :class-card: sd-border-0
 
@@ -117,7 +117,7 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
       :bdg-secondary:`metrics` :bdg-secondary:`monitoring` :bdg-secondary:`scores` :bdg-secondary:`performance`
 
    .. grid-item-card:: :octicon:`cpu;1.5em;sd-mr-1` Models
-      :link: nemo_rl/models/nemo_rl.models
+      :link: api/models/models
       :link-type: doc
       :class-card: sd-border-0
 
@@ -132,14 +132,14 @@ NeMo RL's API reference provides comprehensive technical documentation for all m
    :caption: API Modules
    :hidden:
 
-   nemo_rl/nemo_rl
-   nemo_rl/algorithms/nemo_rl.algorithms
-   nemo_rl/data/nemo_rl.data
-   nemo_rl/environments/nemo_rl.environments
-   nemo_rl/distributed/nemo_rl.distributed
-   nemo_rl/experience/nemo_rl.experience
-   nemo_rl/evals/nemo_rl.evals
-   nemo_rl/utils/nemo_rl.utils
-   nemo_rl/converters/nemo_rl.converters
-   nemo_rl/metrics/nemo_rl.metrics
-   nemo_rl/models/nemo_rl.models
+   api/nemo_rl/nemo_rl
+   api/algorithms/algorithms
+   api/data/data
+   api/environments/environments
+   api/distributed/distributed
+   api/experience/experience
+   api/evals/evals
+   api/utils/utils
+   api/converters/converters
+   api/metrics/metrics
+   api/models/models

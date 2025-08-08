@@ -25,7 +25,7 @@
 
 ### API
 
-`````{py:class} LossType(*args, **kwds)
+`````{py:class} LossType
 :canonical: algorithms.interfaces.LossType
 
 Bases: {py:obj}`enum.Enum`

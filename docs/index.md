@@ -350,19 +350,14 @@ advanced/research/index
 :hidden:
 :caption: API Documentation
 :maxdepth: 2
-api-docs/index
-api-docs/distributed
-api-docs/models
-api-docs/converters
-api-docs/auto-generated.md
-:::: 
+api/index.rst
+::::
 
 ::::{toctree}
 :hidden:
 :caption: References
 :maxdepth: 2
 references/index
-references/apidocs/index.rst
 references/configuration-reference
 references/cli-reference
 ::::

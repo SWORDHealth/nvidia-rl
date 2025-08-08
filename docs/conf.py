@@ -167,7 +167,6 @@ autodoc2_packages_list = [
     "../nemo_rl/distributed",
     # Environments
     "../nemo_rl/environments",
-    "../nemo_rl/environments/games",
     # Evaluation
     "../nemo_rl/evals",
     # Experience management
@@ -193,7 +192,22 @@ if autodoc2_packages:
         extensions.append("autodoc2")
 
     autodoc2_render_plugin = "myst"  # Use MyST for rendering docstrings
-    autodoc2_output_dir = "api-docs"  # Output directory for autodoc2 (relative to docs/)
+    autodoc2_output_dir = "api"  # Output directory for autodoc2 (relative to docs/)
+    
+    # Exclude problematic files and modules
+    autodoc2_exclude_files = [
+        "**/__pycache__/**",
+        "**/*.pyc",
+        "**/tests/**",
+        "**/test_*",
+        "**/*_test.py",
+    ]
+    
+    # Skip modules that don't have proper __init__.py files
+    autodoc2_skip_module_exprs = [
+        r"\.games$",  # Skip games directory without __init__.py
+    ]
+    
     # This is a workaround that uses the parser located in autodoc2_docstrings_parser.py to allow autodoc2 to
     # render google style docstrings.
     # Related Issue: [https://github.com/sphinx-extensions2/sphinx-autodoc2/issues/33](https://github.com/sphinx-extensions2/sphinx-autodoc2/issues/33)
