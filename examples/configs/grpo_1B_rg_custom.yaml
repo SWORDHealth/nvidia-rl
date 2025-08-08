@@ -1,0 +1,406 @@
+grpo:
+  num_prompts_per_step: 32
+  num_generations_per_prompt: 16
+  max_rollout_turns: 1 # for multi-turn
+
+  num_epochs: 1
+  normalize_rewards: true
+  use_leave_one_out_baseline: true
+  val_period: 10
+  val_at_start: false
+  max_val_samples: 256
+  val_batch_size: 256
+
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.28
+  ratio_clip_c: null
+  # (default off) loss formulation improvements (docs/guides/grpo.md#loss)
+  use_on_policy_kl_approximation: false
+  use_importance_sampling_correction: false
+  token_level_loss: true
+  use_generation_logprobs_in_ppo_baseline: false
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: "results/grpo"
+  metric_name: "val_reward"
+  higher_is_better: true
+  keep_top_k: 3
+  save_period: 10
+
+policy:
+  # Qwen/Qwen2.5-1.5B has tied weights which are only supported with dtensor policy with tp size 1 (https://github.com/NVIDIA/NeMo-RL/issues/227)
+  model_name: "Qwen/Qwen2.5-1.5B"
+  tokenizer:
+    name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
+  train_global_batch_size: 512
+  train_micro_batch_size: 4
+  generation_batch_size: 32 # Only used when generating using HF backend
+  logprob_batch_size: 4
+  max_total_sequence_length: 512
+  precision: "bfloat16"
+  fsdp_offload_enabled: false
+  activation_checkpointing_enabled: false
+  refit_buffer_size_gb: 4 # used for refitting inference engine, the unit is GB
+
+  dtensor_cfg:
+    enabled: true
+    cpu_offload: False
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+
+  # dynamic_batching improves performance by ensuring logprob and training microbatches
+  # have a sufficent number of tokens to maximize GPU utilization. Specifically, variable length
+  # responses are sorted by sequence length and bucketed into microbatches with a total
+  # amount of tokens is approximately close to 'train_mb_tokens' and 'logprob_mb_tokens' for the
+  # training and logprob stages respectively.
+  dynamic_batching:
+    enabled: True
+    train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
+    logprob_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.logprob_batch_size}}
+    sequence_length_round: 64
+
+  # makes the training sequence length divisible by the tensor parallel size
+  # this is useful for sequence parallel training
+  make_sequence_length_divisible_by: ${policy.dtensor_cfg.tensor_parallel_size}
+  max_grad_norm: 1.0
+
+  optimizer:
+    name: "torch.optim.AdamW"
+    kwargs:
+      lr: 2.0e-6
+      weight_decay: 0.01
+      betas: [0.9, 0.999]
+      eps: 1e-8
+      # when using Dtensor, we need to set foreach
+      # and fused to False
+      foreach: False
+      fused: False
+
+  scheduler:
+    - name: "torch.optim.lr_scheduler.LinearLR"
+      kwargs:
+        start_factor: 0.1
+        end_factor: 1.0
+        total_iters: 50
+    - name: "torch.optim.lr_scheduler.ConstantLR"
+      kwargs:
+        factor: 1.0
+        total_iters: 10000000000
+    - milestones: [50]
+
+  generation:
+    backend: "vllm"
+    max_new_tokens: ${policy.max_total_sequence_length}
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    stop_token_ids: null
+    stop_strings: null
+    vllm_cfg:
+      precision: ${policy.precision}
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.6
+      max_model_len: ${policy.max_total_sequence_length}
+
+data:
+  train:
+    shuffle: False
+    seed: 420 # unused if shuffle is False
+    jsonl_path: ...
+
+    # checks if it's too long on init
+    filter_long_samples: false
+    drop_last: True
+
+  val:
+    shuffle: False
+    seed: 420 # unused if shuffle is False
+    jsonl_path: ...
+    drop_last: False
+
+    # checks if it's too long on init
+    filter_long_samples: false
+
+  max_input_seq_length: ${policy.max_total_sequence_length} # upper bound, real truncation occurs at vllm.max_model_len
+  add_system_prompt: false
+
+env:
+  math:
+    enable: false
+    num_workers: 8
+  llm_judge_async: # Configuration for the LlmJudgeAsyncEnvironment
+    enable: false
+    num_workers: 2 # Number of parallel judge workers
+    model_name: "Qwen/Qwen2.5-32B-Instruct" # Judge model
+    tensor_parallel_size: 4 # TP size for the judge model
+    gpu_memory_utilization: 0.85 # For judge model
+    max_model_len: 16384 # Max sequence length for the judge model
+    temperature: 0.0 # Judge temperature (usually lower for more deterministic judging)
+    max_tokens: 512  # Max tokens for the judge's evaluation
+    stop: null # Stop strings for the judge's evaluation
+    max_concurrency: 16 # Maximum concurrent step calls for the environment actor (default: 16)
+  ifeval:
+    num_workers: 8
+    enable: false
+  reasoning_gym_task:
+    enable: false
+    num_workers: 8
+    
+    task_selection:
+      mode: "all"                 # "all", "categories", "tasks", "exclude"
+      categories: []              # mode="categories", e.g., ["algebra", "arithmetic"]
+      tasks: []                   # mode="tasks", e.g., ["gcd", "prime_factorization"]
+      exclude_categories: []      # mode="exclude"
+      exclude_tasks: []           # mode="exclude"
+    
+    all_tasks:
+      algebra:
+        - dataset_name: "complex_arithmetic"
+          weight: 0.1
+        - dataset_name: "intermediate_integration"
+          weight: 0.1
+        - dataset_name: "polynomial_equations"
+          weight: 0.1
+        - dataset_name: "polynomial_multiplication"
+          weight: 0.1
+        - dataset_name: "simple_equations"
+          weight: 0.1
+        - dataset_name: "simple_integration"
+          weight: 0.1
+      
+      algorithmic:
+        - dataset_name: "ab"
+          weight: 0.1
+        - dataset_name: "base_conversion"
+          weight: 0.1
+        - dataset_name: "binary_alternation"
+          weight: 0.1
+        - dataset_name: "binary_matrix"
+          weight: 0.1
+        - dataset_name: "caesar_cipher"
+          weight: 0.1
+        - dataset_name: "count_primes"
+          weight: 0.1
+        - dataset_name: "cryptarithm"
+          weight: 0.1
+        - dataset_name: "game_of_life_halting"
+          weight: 0.1
+        - dataset_name: "game_of_life"
+          weight: 0.1
+        - dataset_name: "graph_color"
+          weight: 0.1
+        - dataset_name: "group_anagrams"
+          weight: 0.1
+        - dataset_name: "isomorphic_strings"
+          weight: 0.1
+        - dataset_name: "jugs"
+          weight: 0.1
+        - dataset_name: "letter_counting"
+          weight: 0.1
+        - dataset_name: "letter_jumble"
+          weight: 0.1
+        - dataset_name: "manipulate_matrix"
+          weight: 0.1
+        - dataset_name: "number_filtering"
+          weight: 0.1
+        - dataset_name: "number_sorting"
+          weight: 0.1
+        - dataset_name: "palindrome_generation"
+          weight: 0.1
+        - dataset_name: "palindrome_partitioning"
+          weight: 0.1
+        - dataset_name: "pool_matrix"
+          weight: 0.1
+        - dataset_name: "ransom_note"
+          weight: 0.1
+        - dataset_name: "rotate_matrix"
+          weight: 0.1
+        - dataset_name: "rotten_oranges"
+          weight: 0.1
+        - dataset_name: "sentence_reordering"
+          weight: 0.1
+        - dataset_name: "spell_backward"
+          weight: 0.1
+        - dataset_name: "spiral_matrix"
+          weight: 0.1
+        - dataset_name: "string_insertion"
+          weight: 0.1
+        - dataset_name: "string_manipulation"
+          weight: 0.1
+        - dataset_name: "string_splitting"
+          weight: 0.1
+        - dataset_name: "string_synthesis"
+          weight: 0.1
+        - dataset_name: "word_ladder"
+          weight: 0.1
+        - dataset_name: "word_sequence_reversal"
+          weight: 0.1
+        - dataset_name: "word_sorting"
+          weight: 0.1
+      
+      arc:
+        - dataset_name: "arc_1d"
+          weight: 0.1
+        - dataset_name: "arc_agi"
+          weight: 0.1
+        - dataset_name: "rearc"
+          weight: 0.1
+      
+      arithmetic:
+        - dataset_name: "basic_arithmetic"
+          weight: 0.1
+        - dataset_name: "bitwise_arithmetic"
+          weight: 0.1
+        - dataset_name: "calendar_arithmetic"
+          weight: 0.1
+        - dataset_name: "chain_sum"
+          weight: 0.1
+        - dataset_name: "count_bits"
+          weight: 0.1
+        - dataset_name: "decimal_arithmetic"
+          weight: 0.1
+        - dataset_name: "decimal_chain_sum"
+          weight: 0.1
+        - dataset_name: "dice"
+          weight: 0.1
+        - dataset_name: "fraction_simplification"
+          weight: 0.1
+        - dataset_name: "gcd"
+          weight: 0.1
+        - dataset_name: "lcm"
+          weight: 0.1
+        - dataset_name: "leg_counting"
+          weight: 0.1
+        - dataset_name: "number_format"
+          weight: 0.1
+        - dataset_name: "power_function"
+          weight: 0.1
+        - dataset_name: "prime_factorization"
+          weight: 0.1
+        - dataset_name: "products"
+          weight: 0.1
+        - dataset_name: "time_intervals"
+          weight: 0.1
+      
+      code:
+        - dataset_name: "bf"
+          weight: 0.1
+        - dataset_name: "codeio"
+          weight: 0.1
+      
+      cognition:
+        - dataset_name: "color_cube_rotation"
+          weight: 0.1
+        - dataset_name: "figlet_fonts"
+          weight: 0.1
+        - dataset_name: "modulo_grid"
+          weight: 0.1
+        - dataset_name: "needle_haystack"
+          weight: 0.1
+        - dataset_name: "number_sequences"
+          weight: 0.1
+        - dataset_name: "rectangle_count"
+          weight: 0.1
+        - dataset_name: "rubiks_cube"
+          weight: 0.1
+      
+      games:
+        - dataset_name: "boxnet"
+          weight: 0.1
+        - dataset_name: "countdown"
+          weight: 0.1
+        - dataset_name: "emoji_mystery"
+          weight: 0.1
+        - dataset_name: "futoshiki"
+          weight: 0.1
+        - dataset_name: "kakurasu"
+          weight: 0.1
+        - dataset_name: "knight_swap"
+          weight: 0.1
+        - dataset_name: "mahjong"
+          weight: 0.1
+        - dataset_name: "maze"
+          weight: 0.1
+        - dataset_name: "mini_sudoku"
+          weight: 0.1
+        - dataset_name: "n_queens"
+          weight: 0.1
+        - dataset_name: "puzzle24"
+          weight: 0.1
+        - dataset_name: "rush_hour"
+          weight: 0.1
+        - dataset_name: "sokoban"
+          weight: 0.1
+        - dataset_name: "sudoku"
+          weight: 0.1
+        - dataset_name: "survo"
+          weight: 0.1
+        - dataset_name: "tower_of_hanoi"
+          weight: 0.1
+        - dataset_name: "tsumego"
+          weight: 0.1
+      
+      geometry:
+        - dataset_name: "advanced_geometry"
+          weight: 0.1
+        - dataset_name: "simple_geometry"
+          weight: 0.1
+      
+      graphs:
+        - dataset_name: "course_schedule"
+          weight: 0.1
+        - dataset_name: "family_relationships"
+          weight: 0.1
+        - dataset_name: "largest_island"
+          weight: 0.1
+        - dataset_name: "quantum_lock"
+          weight: 0.1
+        - dataset_name: "shortest_path"
+          weight: 0.1
+      
+      induction:
+        - dataset_name: "acre"
+          weight: 0.1
+        - dataset_name: "blicket"
+          weight: 0.1
+        - dataset_name: "list_functions"
+          weight: 0.1
+      
+      logic:
+        - dataset_name: "aiw"
+          weight: 0.1
+        - dataset_name: "circuit_logic"
+          weight: 0.1
+        - dataset_name: "knights_knaves"
+          weight: 0.1
+        - dataset_name: "propositional_logic"
+          weight: 0.1
+        - dataset_name: "self_reference"
+          weight: 0.1
+        - dataset_name: "syllogisms"
+          weight: 0.1
+        - dataset_name: "zebra_puzzles"
+          weight: 0.1
+    seed: 42
+
+logger:
+  log_dir: "logs"  # Base directory for all logs
+  num_val_samples_to_print: 0 # Number of validation samples to pretty print on terminal
+  wandb_enabled: false
+  tensorboard_enabled: false
+  monitor_gpus: false  # If true, will monitor GPU usage and log to wandb and/or tensorboard
+  wandb:
+    project: "grpo-dev"
+    name: "grpo-dev-logger"
+  tensorboard: {}
+  gpu_monitoring:
+    collection_interval: 10  # How often to collect GPU usage metrics (in seconds)
+    flush_interval: 10  # How often to flush GPU usage metrics to the loggers (in seconds)
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1

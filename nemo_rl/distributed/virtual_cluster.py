@@ -47,6 +47,9 @@ class PY_EXECUTABLES:
 
     # Use NeMo-RL direct dependencies and ifeval dependencies.
     IFEVAL = "uv run --locked --extra ifeval"
+    
+    # reasoning-gym and jsonlines
+    REASONING_GYM = "uv run --locked --with reasoning-gym --with jsonlines"
 
 
 @ray.remote

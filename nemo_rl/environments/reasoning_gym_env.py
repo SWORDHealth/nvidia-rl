@@ -23,6 +23,7 @@ from reasoning_gym.composite import CompositeDataset, CompositeConfig, DatasetSp
 
 from nemo_rl.data.interfaces import LLMMessageLogType
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
+from nemo_rl.distributed.virtual_cluster import PY_EXECUTABLES
 from nemo_rl.environments.interfaces import (
     EnvironmentInterface,
     EnvironmentReturn,
@@ -181,6 +182,8 @@ class ReasoningGymRunner:
 @ray.remote
 class ReasoningGymEnv(EnvironmentInterface):
     """Reasoning-gym environment"""
+    
+    DEFAULT_PY_EXECUTABLE = PY_EXECUTABLES.REASONING_GYM
 
     def __init__(self, cfg: Optional[ReasoningGymConfig] = None):
         self.game_config = cfg if cfg else {}
