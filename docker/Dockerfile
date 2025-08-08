@@ -19,9 +19,12 @@ apt-get install -y --no-install-recommends \
     vim \
 
 # Nsight
+# The devtools repo for Ubuntu 24.04 is not yet available. Using the 22.04 repo.
+# Also, apt-key is deprecated. Using wget and gpg to handle the key.
 apt install -y --no-install-recommends gnupg
-echo "deb http://developer.download.nvidia.com/devtools/repos/ubuntu$(source /etc/lsb-release; echo "$DISTRIB_RELEASE" | tr -d .)/$(dpkg --print-architecture) /" | tee /etc/apt/sources.list.d/nvidia-devtools.list
-apt-key adv --fetch-keys http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub
+echo "deb http://developer.download.nvidia.com/devtools/repos/ubuntu2204/$(dpkg --print-architecture) /" | tee /etc/apt/sources.list.d/nvidia-devtools.list
+wget -qO - http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/nvidia-devtools.gpg
+
 apt update
 apt install -y nsight-systems-cli
 
