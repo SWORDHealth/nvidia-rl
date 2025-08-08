@@ -322,7 +322,6 @@ class VllmGenerationWorker:
         if ModelFlag.VLLM_LOAD_FORMAT_AUTO.matches(self.model_name):
             load_format = "auto"
 
-        from random import randint
         llm_kwargs = dict(
             model=self.model_name,
             load_format=load_format,
@@ -334,7 +333,7 @@ class VllmGenerationWorker:
             gpu_memory_utilization=self.gpu_memory_utilization,
             enable_prefix_caching=torch.cuda.get_device_capability()[0] >= 8,
             dtype=self.cfg["vllm_cfg"]["precision"],
-            seed=randint(0, 1000),
+            seed=seed,
             enforce_eager=self.cfg["vllm_cfg"]["enforce_eager"],
             max_model_len=self.cfg["vllm_cfg"]["max_model_len"],
             trust_remote_code=True,
@@ -425,6 +424,7 @@ class VllmGenerationWorker:
             max_new_tokens if max_new_tokens is not None else self.cfg["max_new_tokens"]
         )
 
+        from random import randint
         return self.SamplingParams(
             temperature=temperature,
             top_p=self.cfg["top_p"],
@@ -434,6 +434,7 @@ class VllmGenerationWorker:
             stop_token_ids=self.cfg["stop_token_ids"],
             stop=stop_strings,
             include_stop_str_in_output=True,
+            seed=randint(0, 10000),
         )
 
     def generate(
