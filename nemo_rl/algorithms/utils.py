@@ -46,7 +46,7 @@ def prepare_for_mdlm_train_data(cat_and_padded: BatchedDataDict, mask_token_id: 
     p_mask = p_mask[:, None].repeat(1, seq_len) # (bsz, seq_len)
 
     noise_mask = torch.rand((bsz, seq_len), device=token_ids.device) < p_mask
-    noise_mask = noise_mask & token_loss_mask
+    noise_mask = noise_mask & token_loss_mask.bool()
     noisy_token_ids = torch.where(noise_mask, mask_token_id, token_ids)
 
     new_cat_and_padded = BatchedDataDict(
