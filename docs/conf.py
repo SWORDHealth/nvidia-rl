@@ -60,6 +60,7 @@ exclude_patterns = [
     "_extensions/README.md",        # Exclude main extensions README
     "_extensions/*/__pycache__",    # Exclude Python cache directories
     "_extensions/*/*/__pycache__", # Exclude nested Python cache directories
+    "api/**",  # Exclude any legacy generated API files under docs/api
 ]
 
 # -- Options for Intersphinx -------------------------------------------------
@@ -206,7 +207,7 @@ if autodoc2_packages:
         extensions.append("autodoc2")
 
     autodoc2_render_plugin = "myst"  # Use MyST for rendering docstrings
-    autodoc2_output_dir = "api"  # Output directory for autodoc2 (relative to docs/)
+    autodoc2_output_dir = "api-docs"  # Output directory for autodoc2 (relative to docs/)
     # Use custom index template so API landing page renders with grid cards
     autodoc2_index_template = "_templates/autodoc2_index.rst"
     

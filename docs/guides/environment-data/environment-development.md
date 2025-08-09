@@ -436,8 +436,8 @@ class CodeGenerationEnvironment(EnvironmentInterface):
 
 ## Next Steps
 
-- Review the [Environment Interfaces API](../../api/nemo_rl/nemo_rl.environments.interfaces) for detailed API documentation
-- Explore [Math Environment](../../api/nemo_rl/nemo_rl.environments.math_environment) for a complete implementation example
+- Review the [Environment Interfaces API](../../api-docs/nemo_rl/nemo_rl.environments.interfaces) for detailed API documentation
+- Explore [Math Environment](../../api-docs/nemo_rl/nemo_rl.environments.math_environment) for a complete implementation example
 - Check [Debugging](debugging) for troubleshooting guidance
 - See [Advanced Training](../../advanced/algorithm-development/index) for optimization techniques
 - Review [Configuration Reference](../../references/configuration-reference) for environment setup 

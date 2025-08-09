@@ -981,9 +981,9 @@ After completing this tutorial:
 
 ## Related Resources
 
-- **[Environment Interfaces API](../../api/nemo_rl/nemo_rl.environments.interfaces)**: Detailed API documentation
+- **[Environment Interfaces API](../../api-docs/nemo_rl/nemo_rl.environments.interfaces)**: Detailed API documentation
 - **[Environment Development Guide](../../guides/environment-data/environment-development)**: Environment development fundamentals
-- **[Ray Distributed Computing](../../api/distributed/distributed)**: Distributed computing with Ray
+- **[Ray Distributed Computing](../../api-docs/distributed/distributed)**: Distributed computing with Ray
 - **[Advanced Algorithm Development](../../../advanced/algorithm-development/index)**: Advanced algorithm development techniques
 
 ## Summary
