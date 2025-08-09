@@ -14,7 +14,6 @@
 
 import contextlib
 import gc
-import inspect
 import itertools
 import os
 from collections import defaultdict
@@ -705,9 +704,6 @@ class DTensorPolicyWorker:
                                 use_cache=False,
                                 flash_attn_kwargs=flash_attn_kwargs,
                             )
-                            if "position_ids" in inspect.signature(self.model).parameters:
-                                model_args["position_ids"] = position_ids
-
                             if self._is_reward_model:
                                 # `flash_attn_kwarg` is not supported for `LlamaForSequenceClassification`.
                                 # Note that it should be empty anyway since sequence packing
@@ -715,7 +711,12 @@ class DTensorPolicyWorker:
                                 assert not flash_attn_kwargs
                                 del model_args["flash_attn_kwargs"]
 
-                            outputs = self.model(**model_args)
+                            try:
+                                outputs = self.model(**model_args)
+                            except TypeError:
+                                # TODO(mfathi): maybe a cleaner way to do this?
+                                del model_args["position_ids"]
+                                outputs = self.model(**model_args)
 
                         # Get logprobs
                         if not hasattr(outputs, "logits"):
