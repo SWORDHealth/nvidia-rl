@@ -210,6 +210,8 @@ class DTensorPolicyWorker:
             else None,
         )
 
+        self._is_mdlm = self.cfg.get("is_mdlm", False)
+
         self._is_reward_model = self.cfg.get("reward_model_cfg", {}).get(
             "enabled", False
         )
@@ -704,6 +706,10 @@ class DTensorPolicyWorker:
                                 use_cache=False,
                                 flash_attn_kwargs=flash_attn_kwargs,
                             )
+                            if self._is_mdlm:
+                                del model_args["position_ids"]
+                                del model_args["flash_attn_kwargs"]
+
                             if self._is_reward_model:
                                 # `flash_attn_kwarg` is not supported for `LlamaForSequenceClassification`.
                                 # Note that it should be empty anyway since sequence packing
@@ -711,12 +717,7 @@ class DTensorPolicyWorker:
                                 assert not flash_attn_kwargs
                                 del model_args["flash_attn_kwargs"]
 
-                            try:
-                                outputs = self.model(**model_args)
-                            except TypeError:
-                                # TODO(mfathi): maybe a cleaner way to do this?
-                                del model_args["position_ids"]
-                                outputs = self.model(**model_args)
+                            outputs = self.model(**model_args)
 
                         # Get logprobs
                         if not hasattr(outputs, "logits"):
