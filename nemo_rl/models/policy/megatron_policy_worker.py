@@ -124,6 +124,7 @@ from nemo_rl.models.policy.utils import (
     get_megatron_checkpoint_dir,
     get_runtime_env_for_policy_worker,
 )
+from nemo_rl.utils.nsys import wrap_with_nvtx_name
 
 TokenizerType = TypeVar("TokenizerType", bound=PreTrainedTokenizerBase)
 
@@ -771,6 +772,7 @@ class MegatronPolicyWorker:
         assert isinstance(self.model, DistributedDataParallel)
         self.model.disable_forward_pre_hook(param_sync=param_sync)
 
+    @wrap_with_nvtx_name("megatron_policy_worker/train")
     def train(
         self,
         data: BatchedDataDict,
@@ -1016,6 +1018,7 @@ class MegatronPolicyWorker:
         }
         return metrics
 
+    @wrap_with_nvtx_name("megatron_policy_worker/get_logprobs")
     def get_logprobs(
         self, *, data: BatchedDataDict[Any], micro_batch_size: Optional[int] = None
     ) -> BatchedDataDict[LogprobOutputSpec]:
@@ -1249,6 +1252,7 @@ class MegatronPolicyWorker:
                     self.enable_forward_pre_hook()
 
     # Temporary fix, 'data' is a kwarg due to some sort of ray bug
+    @wrap_with_nvtx_name("megatron_policy_worker/get_reference_policy_logprobs")
     def get_reference_policy_logprobs(
         self, *, data: BatchedDataDict[Any], micro_batch_size: Optional[int] = None
     ) -> BatchedDataDict[ReferenceLogprobOutputSpec]:
@@ -1271,6 +1275,7 @@ class MegatronPolicyWorker:
         return_data["reference_logprobs"] = reference_logprobs["logprobs"].cpu()
         return return_data
 
+    @wrap_with_nvtx_name("megatron_policy_worker/generate")
     def generate(
         self, *, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False
     ) -> BatchedDataDict[GenerationOutputSpec]:
@@ -1414,6 +1419,7 @@ class MegatronPolicyWorker:
         return get_device_uuid(device_idx)
 
     @torch.no_grad()
+    @wrap_with_nvtx_name("megatron_policy_worker/prepare_refit_info")
     def prepare_refit_info(self) -> None:
         # Get parameter info for refit
         # param_info: list of ((name, shape, dtype), size_in_bytes) tuples
@@ -1448,6 +1454,7 @@ class MegatronPolicyWorker:
 
         return refit_param_info_hf
 
+    @wrap_with_nvtx_name("megatron_policy_worker/prepare_weights_for_ipc")
     def prepare_weights_for_ipc(self) -> tuple[list[tuple[str, int]], float]:
         """Prepare Megatron model weights for IPC transfer to vLLM.
 
@@ -1469,6 +1476,7 @@ class MegatronPolicyWorker:
 
     # Temporary fix, 'keys' is a kwarg due to some sort of ray bug
     @torch.no_grad()
+    @wrap_with_nvtx_name("megatron_policy_worker/get_weights_ipc_handles")
     def get_weights_ipc_handles(self, *, keys: list[str]) -> dict[str, Any]:
         """Get IPC handles for the requested Megatron model weights.
 
@@ -1601,6 +1609,7 @@ class MegatronPolicyWorker:
 
         torch.cuda.empty_cache()
 
+    @wrap_with_nvtx_name("megatron_policy_worker/offload_before_refit")
     def offload_before_refit(self):
         """Offload the optimizer and buffers to the CPU."""
         no_grad = torch.no_grad()
@@ -1639,6 +1648,7 @@ class MegatronPolicyWorker:
         )
         no_grad.__exit__(None, None, None)
 
+    @wrap_with_nvtx_name("megatron_policy_worker/offload_after_refit")
     def offload_after_refit(self):
         no_grad = torch.no_grad()
         no_grad.__enter__()
