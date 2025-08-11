@@ -6,11 +6,11 @@ tags: ["refactor-plan", "documentation", "nemo-rl"]
 
 ## NeMo RL Documentation Refactor Plan
 
-This document consolidates the refactor proposal, PR plan, and mapping diff for the NeMo RL documentation overhaul. It captures the goals, scope, structure, migration mapping, review process, and deployment timeline.
+This document presents the refactor proposal, PR plan, and mapping diff for the NeMo RL documentation project. It captures the goals, scope, structure, migration mapping, review process, and deployment timeline.
 
 ---
 
-## Executive Summary
+## Summary
 
 - Goal: Transform NeMo RL docs from a flat structure into a user-centric, hierarchical system with better navigation and coverage.
 - Coverage increase: 25 → 82 manually authored files (+81 Auto‑Generated API docs).
@@ -166,14 +166,14 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
      - `docs/get-started/docker.md`
      - `docs/get-started/cluster.md`
 
-3. Management & Troubleshooting (4 Files)
+3. Operations & Troubleshooting (4 Files)
    - Files for review:
      - `docs/guides/environment-data/index.md`
      - `docs/guides/troubleshooting.md`
      - `docs/references/index.md`
      - `docs/BUILD_INSTRUCTIONS.md`
 
-4. Integrations & Advanced Topics (8 Files)
+4. Core Design & Advanced Performance (7 Files)
    - Files for review:
      - `docs/advanced/performance/index.md`
      - `docs/advanced/performance/distributed-training.md`
@@ -182,9 +182,8 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
      - `docs/core-design/computational-systems/training-backends.md`
      - `docs/core-design/development-infrastructure/uv.md`
      - `docs/core-design/computational-systems/logger.md`
-     - `docs/learning-resources/examples/index.md`
 
-5. API Documentation (8 Files)
+5. API Documentation (7 Files)
    - Files for review:
      - `docs/api-docs/index.md`
      - `docs/api-docs/models.md`
@@ -193,7 +192,6 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
      - `docs/api-docs/auto-generated.md`
      - `docs/api-docs/nemo_rl/` (per‑module auto‑generated)
      - `docs/index.md` (API overview linkage)
-     - `docs/api-docs/README.md` (if present)
 
 6. About & Learning Resources (6 Files)
    - Files for review:
