@@ -119,7 +119,7 @@ Begin your RL journey with supervised fine-tuning to establish a strong baseline
 
 ```bash
 # Basic SFT training
-python -m nemo_rl.train --config sft_config.yaml
+uv run examples/run_sft.py --config examples/configs/sft.yaml
 ```
 
 ### 2. Add Preference Learning
@@ -127,7 +127,7 @@ Once you have a good SFT model, add preference optimization:
 
 ```bash
 # DPO training with preference data
-python -m nemo_rl.train --config dpo_config.yaml
+uv run examples/run_dpo.py --config examples/configs/dpo.yaml
 ```
 
 ### 3. Advanced Optimization
@@ -135,7 +135,7 @@ For research or complex scenarios, use GRPO:
 
 ```bash
 # GRPO with custom reward functions
-python -m nemo_rl.train --config grpo_config.yaml
+uv run examples/run_grpo_math.py --config examples/configs/grpo_math_1B.yaml
 ```
 
 ### 4. Evaluate and Iterate
@@ -143,7 +143,7 @@ Continuously evaluate your models and refine your approach:
 
 ```bash
 # Comprehensive evaluation
-python -m nemo_rl.eval --config eval_config.yaml
+uv run examples/run_eval.py --config examples/configs/eval.yaml
 ```
 
 ## Data Requirements

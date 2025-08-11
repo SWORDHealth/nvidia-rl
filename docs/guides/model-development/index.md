@@ -100,11 +100,9 @@ model:
 Integrate with RL training algorithms:
 
 ```python
-# SFT with custom model
-from nemo_rl.models import ModelFactory
-
-model = ModelFactory.create_model(model_config)
-trainer = SFTTrainer(model=model, config=training_config)
+# Training with Policy and DPO (see examples/run_dpo.py for a complete pipeline)
+from nemo_rl.models.policy.lm_policy import Policy
+from nemo_rl.algorithms.dpo import setup as dpo_setup, dpo_train
 ```
 
 ## Architecture Considerations
@@ -132,36 +130,16 @@ trainer = SFTTrainer(model=model, config=training_config)
 Extend the base model interface:
 
 ```python
-from nemo_rl.models.base import BaseModel
-
-class MyCustomModel(BaseModel):
-    def __init__(self, config):
-        super().__init__(config)
-        # Initialize your custom architecture
-        
-    def forward(self, input_ids, attention_mask=None):
-        # Implement forward pass
-        return outputs
-        
-    def generate(self, input_ids, **kwargs):
-        # Implement generation logic
-        return generated_ids
+# Extend or customize behavior by wrapping interfaces and workers used by Policy
+# See nemo_rl.models.policy.*_policy_worker for extension points
 ```
 
 ### Backend Integration
 Implement custom backends for specialized hardware:
 
 ```python
-from nemo_rl.models.backends import BaseBackend
-
-class CustomBackend(BaseBackend):
-    def load_model(self, config):
-        # Load your custom model
-        pass
-        
-    def generate(self, model, input_ids, **kwargs):
-        # Custom generation logic
-        pass
+# Policy selects backends via configuration (FSDP/DTensor/Megatron)
+# Example fields: policy.dtensor_cfg.enabled, policy.megatron_cfg.enabled
 ```
 
 ## Model-Specific Considerations

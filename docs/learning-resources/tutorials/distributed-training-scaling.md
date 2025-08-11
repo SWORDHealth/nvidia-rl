@@ -100,7 +100,7 @@ class DistributedTrainingFramework:
         )
         
         # Create worker builder
-        builder = RayWorkerBuilder("nemo_rl.models.policy.DTensorPolicyWorker")
+        builder = RayWorkerBuilder("nemo_rl.models.policy.dtensor_policy_worker.DTensorPolicyWorker")
         
         # Create worker group
         self.worker_group = RayWorkerGroup(

@@ -20,7 +20,7 @@ NeMo RL uses CPU offloading to manage memory during training:
 
 ```python
 # Real NeMo RL memory management patterns
-from nemo_rl.models.policy import DTensorPolicyWorker
+from nemo_rl.models.policy.dtensor_policy_worker import DTensorPolicyWorker
 
 class MemoryOptimizedTraining:
     def __init__(self, worker: DTensorPolicyWorker):

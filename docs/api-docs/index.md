@@ -123,8 +123,7 @@ The data layer handles data processing, dataset management, and environment inte
 
 The converters layer provides model conversion and export utilities:
 
-- **HuggingFace Converters**: Convert to vLLM, ONNX, TensorRT formats
-- **Megatron Converters**: Convert Megatron models to HuggingFace format
+- **HuggingFace/Megatron Converters**: vLLM export and Megatron → HuggingFace
 - **Deployment Utilities**: Model export and production deployment tools
 
 ## Design Philosophy
@@ -136,17 +135,23 @@ NeMo RL follows several key design principles:
 Each component is designed as a modular abstraction that can be composed and extended:
 
 ```python
-# Example: Composing a training pipeline
-policy = HuggingFacePolicy(model_name="llama2-7b")
-generator = VllmGeneration(cluster, config)
-environment = MathEnvironment()
-dataloader = BatchedDataLoader(dataset)
+# Example: Composing a generation pipeline
+from nemo_rl.distributed.virtual_cluster import RayVirtualCluster
+from nemo_rl.models.generation.vllm import VllmGeneration, VllmConfig
 
-# All components work together through interfaces
-for batch in dataloader:
-    generations = generator.generate(batch)
-    rewards = environment.step(generations)
-    policy.train(generations, rewards)
+cluster = RayVirtualCluster(bundle_ct_per_node_list=[4], use_gpus=True, num_gpus_per_node=4)
+vllm_cfg: VllmConfig = {
+    "backend": "vllm",
+    "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+    "max_new_tokens": 128,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "top_k": None,
+    "pad_token_id": 0,
+    "stop_token_ids": [],
+    "vllm_cfg": {"tensor_parallel_size": 1, "pipeline_parallel_size": 1, "gpu_memory_utilization": 0.8, "max_model_len": 4096, "skip_tokenizer_init": True, "async_engine": False, "precision": "bfloat16", "load_format": "auto"},
+}
+generator = VllmGeneration(cluster, vllm_cfg)
 ```
 
 ### Backend Independence
@@ -154,13 +159,8 @@ for batch in dataloader:
 The framework is designed to be backend-agnostic, allowing easy switching between different implementations:
 
 ```python
-# Same interface, different backends
-policy_hf = HuggingFacePolicy(model_name="llama2-7b")
-policy_megatron = MegatronPolicy(model_name="llama2-7b")
-
-# Both implement the same PolicyInterface
-generations = policy_hf.generate(batch)  # Same API
-generations = policy_megatron.generate(batch)  # Same API
+# Same interface, different backends (via configuration in Policy)
+# See nemo_rl.models.policy.lm_policy.Policy and example configs in examples/configs/
 ```
 
 ### Scalability
@@ -183,19 +183,14 @@ worker_group = RayWorkerGroup(cluster, policy_class)
 ### Basic Usage
 
 ```python
-from nemo_rl.distributed import RayVirtualCluster, RayWorkerGroup
-from nemo_rl.models import HuggingFacePolicy
-from nemo_rl.algorithms import DPOTrainer
+from nemo_rl.distributed.virtual_cluster import RayVirtualCluster
+from nemo_rl.models.policy.lm_policy import Policy
+from nemo_rl.algorithms.dpo import setup as dpo_setup, dpo_train
 
 # Set up distributed environment
-cluster = RayVirtualCluster([4])  # 4 GPUs
-policy = HuggingFacePolicy("llama2-7b")
+cluster = RayVirtualCluster(bundle_ct_per_node_list=[4], use_gpus=True, num_gpus_per_node=4)
 
-# Create trainer
-trainer = DPOTrainer(policy, cluster)
-
-# Start training
-trainer.train(dataset)
+# See examples/run_dpo.py for a complete training pipeline using Policy and dpo_train
 ```
 
 ### Custom Components

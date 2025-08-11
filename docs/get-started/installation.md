@@ -15,7 +15,7 @@ This guide covers installing NeMo RL on various platforms and environments.
 ## Prerequisites
 
 ### System Requirements
-- **Python**: 3.9 or higher
+- **Python**: 3.12 or higher
 - **CUDA**: 11.8 or higher (for GPU support)
 - **Memory**: Minimum 16 GB RAM, 32 GB+ recommended
 - **Storage**: At least 50GB free space for models and datasets
@@ -121,7 +121,7 @@ huggingface-cli login
 
 ### For Development
 ```bash
-pip install -e ".[dev]"
+uv sync --group dev
 ```
 
 ### For Documentation
@@ -131,7 +131,7 @@ pip install -r requirements-docs.txt
 
 ### For Testing
 ```bash
-pip install -e ".[test]"
+uv sync --group test
 ```
 
 ## Platform-Specific Instructions

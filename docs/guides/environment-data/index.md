@@ -77,11 +77,9 @@ NeMo RL has specific requirements for optimal performance:
 # Install NeMo RL
 pip install nemo-rl
 
-# Install with development dependencies
-pip install nemo-rl[dev]
-
-# Install with all optional dependencies
-pip install nemo-rl[all]
+# Optional extras
+pip install nemo-rl[vllm]
+pip install nemo-rl[mcore]
 ```
 
 ### Environment Variables
@@ -114,13 +112,7 @@ NeMo RL supports various data formats and sources:
 
 **HuggingFace Datasets:**
 ```python
-from nemo_rl.data import load_dataset
-
-# Load standard datasets
-dataset = load_dataset("helpsteer3", split="train")
-
-# Load custom datasets
-dataset = load_dataset("json", data_files="path/to/data.json")
+# See examples/run_dpo.py for dataset setup via nemo_rl.data.hf_datasets and AllTaskProcessedDataset
 ```
 
 **Custom Data Formats:**
@@ -147,34 +139,13 @@ grpo_data = [
 ### Data Preprocessing
 
 ```python
-from nemo_rl.data import preprocess_dataset
-
-# Preprocess for DPO
-dpo_dataset = preprocess_dataset(
-    dataset,
-    algorithm="dpo",
-    tokenizer=tokenizer,
-    max_length=2048
-)
-
-# Preprocess for GRPO
-grpo_dataset = preprocess_dataset(
-    dataset,
-    algorithm="grpo",
-    tokenizer=tokenizer,
-    max_length=2048
-)
+# Preprocessing is implemented in examples (see run_dpo.py dpo_preprocessor and AllTaskProcessedDataset)
 ```
 
 ### Data Validation
 
 ```python
-from nemo_rl.data import validate_dataset
-
-# Validate dataset format
-errors = validate_dataset(dataset, algorithm="dpo")
-if errors:
-    print("Dataset validation errors:", errors)
+# Validate via lightweight checks in your pipeline; no standalone validate_dataset API in nemo_rl.data
 ```
 
 ## Performance Optimization

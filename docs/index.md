@@ -276,10 +276,7 @@ Deployment guides, monitoring, and production best practices.
 
 ---
 
-::::{toctree}
-:hidden:
-Home <self>
-::::
+
 
 ::::{toctree}
 :hidden:
