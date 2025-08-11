@@ -27,13 +27,16 @@ from nemo_rl.algorithms.utils import get_tokenizer
 from nemo_rl.data import DataConfig
 from nemo_rl.data.interfaces import DatumSpec
 from nemo_rl.distributed.virtual_cluster import init_ray
-from nemo_rl.environments.ifeval_environment import IFEvalEnvironment
-from nemo_rl.environments.llm_judge_async_environment import LLMJudgeAsyncEnvironment
+#from nemo_rl.environments.ifeval_environment import IFEvalEnvironment
+#from nemo_rl.environments.llm_judge_async_environment import LLMJudgeAsyncEnvironment
 from nemo_rl.environments.math_environment import MathEnvironment
 from nemo_rl.environments.reasoning_gym_environment import ReasoningGymEnvironment
-from nemo_rl.models.generation.interfaces import configure_generation_config
+from nemo_rl.models.generation import configure_generation_config
 from nemo_rl.utils.config import load_config, parse_hydra_overrides
 from nemo_rl.utils.logger import get_next_experiment_dir
+from nemo_rl.distributed.ray_actor_environment_registry import (
+    get_actor_python_env,
+)
 
 OmegaConf.register_new_resolver("mul", lambda a, b: a * b)
 
@@ -132,25 +135,25 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, env_configs):
 
     train_ds = JsonlinesDataset(
         data_config["train"]["jsonl_path"],
-        data_config["train"]["seed"],
+        42, #data_config["train"]["seed"],
         tokenizer,
         max_seq_length=data_config["max_input_seq_length"],
-        filter_long_samples=data_config["train"]["filter_long_samples"],
+        filter_long_samples=True, #data_config["train"]["filter_long_samples"],
     )
     val_ds = JsonlinesDataset(
         data_config["val"]["jsonl_path"],
-        data_config["val"]["seed"],
+        42, #data_config["val"]["seed"],
         tokenizer,
         max_seq_length=data_config["max_input_seq_length"],
-        filter_long_samples=data_config["val"]["filter_long_samples"],
+        filter_long_samples=True, #data_config["val"]["filter_long_samples"],
     )
 
     task_to_env = {}
 
-    if "math" in env_configs and env_configs["math"]["enable"]:
+    if False: #"math" in env_configs and env_configs["math"]["enable"]:
         math_env = MathEnvironment.options(
             runtime_env={
-                "py_executable": MathEnvironment.DEFAULT_PY_EXECUTABLE,
+                "py_executable": nemo_rl.environments.reasoning_gym_environment.ReasoningGymEnvironment,
                 "env_vars": dict(
                     os.environ
                 ),  # Pass thru all user environment variables
@@ -158,7 +161,7 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, env_configs):
         ).remote(env_configs["math"])
         task_to_env["math"] = math_env
 
-    if "ifeval" in env_configs and env_configs["ifeval"]["enable"]:
+    if False: #"ifeval" in env_configs and env_configs["ifeval"]["enable"]:
         ifeval_env = IFEvalEnvironment.options(
             runtime_env={
                 "py_executable": IFEvalEnvironment.DEFAULT_PY_EXECUTABLE,
@@ -166,7 +169,7 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, env_configs):
             },
         ).remote(env_configs["ifeval"])
         task_to_env["ifeval"] = ifeval_env
-    if "llm_judge_async" in env_configs and env_configs["llm_judge_async"]["enable"]:
+    if False: #"llm_judge_async" in env_configs and env_configs["llm_judge_async"]["enable"]:
         # Extract max_concurrency from config, default to 16 if not specified
         max_concurrency = env_configs["llm_judge_async"].get("max_concurrency", 16)
 
@@ -181,7 +184,9 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, env_configs):
     if "reasoning_gym" in env_configs and env_configs["reasoning_gym"]["enable"]:
         reasoning_gym_env = ReasoningGymEnvironment.options(
             runtime_env={
-                "py_executable": ReasoningGymEnvironment.DEFAULT_PY_EXECUTABLE,
+                "py_executable": get_actor_python_env(
+                    "nemo_rl.environments.reasoning_gym_environment.ReasoningGymEnvironment",
+                ),
                 "env_vars": dict(os.environ),
             },
         ).remote(env_configs["reasoning_gym"])

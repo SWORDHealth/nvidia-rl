@@ -47,6 +47,7 @@ dependencies = [
     "plotly",
     "mlflow",
     "reasoning-gym>=0.1.22",
+    "jsonlines",
 ]
 
 [project.optional-dependencies]

@@ -23,10 +23,12 @@ from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentRet
 from nemo_rl.environments.metrics import calculate_pass_rate_per_prompt
 from nemo_rl.environments.utils import chunk_list_to_workers
 
-try:
-    from reasoning_gym import get_score_answer_fn  # type: ignore
-except ImportError:  # pragma: no cover
-    get_score_answer_fn = None  # type: ignore
+from nemo_rl.distributed.virtual_cluster import PY_EXECUTABLES
+
+#try:
+from reasoning_gym import get_score_answer_fn  # type: ignore
+#except ImportError:  # pragma: no cover
+#    get_score_answer_fn = None  # type: ignore
 
 
 class ReasoningGymEnvConfig(TypedDict):
@@ -74,7 +76,7 @@ class _ReasoningGymWorker:
         return results
 
 
-@ray.remote
+@ray.remote(max_restarts=-1, max_task_retries=-1)
 class ReasoningGymEnvironment(EnvironmentInterface):
     """Environment used for tasks from the Reasoning Gym benchmark."""
 
@@ -86,7 +88,7 @@ class ReasoningGymEnvironment(EnvironmentInterface):
 
         self.workers = [
             _ReasoningGymWorker.options(
-                runtime_env={"py_executable": _ReasoningGymWorker.DEFAULT_PY_EXECUTABLE}
+                runtime_env={"py_executable": PY_EXECUTABLES.SYSTEM}
             ).remote()
             for _ in range(self.num_workers)
         ]
@@ -154,6 +156,7 @@ class ReasoningGymEnvironment(EnvironmentInterface):
             next_stop_strings=next_stop_strings,
             rewards=rewards,
             terminateds=done,
+            answers=None,
         )
 
     def global_post_process_and_metrics(
