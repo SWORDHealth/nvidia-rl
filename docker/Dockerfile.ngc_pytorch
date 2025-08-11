@@ -49,20 +49,34 @@ RUN <<"EOF" bash -exu
 echo "Building vLLM from source for PyTorch base image"
 
 # Modify torch package metadata to remove NVIDIA version suffix
-TORCH_DIR=$(python -c "import torch; print(torch.__path__[0])" 2>/dev/null || echo "")
-if [ -n "$TORCH_DIR" ]; then
-    # Find the torch package metadata file
-    METADATA_FILE=$(find "$TORCH_DIR" -name "METADATA" -o -name "PKG-INFO" 2>/dev/null | head -1)
-    if [ -n "$METADATA_FILE" ]; then
+# Look for torch in the system Python packages directory
+TORCH_DIST_INFO_DIR=$(find /usr/local/lib/python3.12/dist-packages -name "torch-*.nv*.dist-info" -type d 2>/dev/null | head -1)
+
+if [ -n "$TORCH_DIST_INFO_DIR" ]; then
+    echo "Found torch dist-info directory: $TORCH_DIST_INFO_DIR"
+
+    # Find the METADATA file within the dist-info directory
+    METADATA_FILE="$TORCH_DIST_INFO_DIR/METADATA"
+
+    if [ -f "$METADATA_FILE" ]; then
         echo "Found torch metadata file: $METADATA_FILE"
         # Remove NVIDIA version suffix from Version field (e.g., .nv25.6, .nv25.7, etc.)
         sed -i 's/^Version: \(.*\)\.nv[0-9]\+\.\([0-9]\+\)/Version: \1/' "$METADATA_FILE"
         echo "Modified torch package metadata to remove NVIDIA version suffix"
+
+        # Also update the directory name to remove the .nv suffix
+        NEW_DIR_NAME=$(echo "$TORCH_DIST_INFO_DIR" | sed 's/\.nv[0-9]\+\.\([0-9]\+\)//')
+        if [ "$TORCH_DIST_INFO_DIR" != "$NEW_DIR_NAME" ]; then
+            mv "$TORCH_DIST_INFO_DIR" "$NEW_DIR_NAME"
+            echo "Renamed directory from $(basename "$TORCH_DIST_INFO_DIR") to $(basename "$NEW_DIR_NAME")"
+        fi
     else
-        echo "Warning: Could not find torch metadata file"
+        echo "Error: Could not find METADATA file in $TORCH_DIST_INFO_DIR"
+        exit 1
     fi
 else
-    echo "Warning: Could not locate torch package directory"
+    echo "Error: Could not locate torch dist-info directory"
+    exit 1
 fi
 
 # Extract vLLM version from uv.lock and build that version
