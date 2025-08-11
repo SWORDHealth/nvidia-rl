@@ -373,12 +373,14 @@ def run_model_refitting(policy, vllm_inference_policy, refit_buffer_size_gb):
     """
     print("\n--- Performing Model Refitting ---")
     
-    # Prepare weights for inter-process communication
-    sd_info = policy.prepare_weights_for_ipc()
-    print(f"Weight preparation info: {sd_info}")
-    
-    # Perform the refitting between policies
-    refit_policy_generation(policy, vllm_inference_policy, refit_buffer_size_gb)
+    # Perform the refitting between policies using GRPO's refit function
+    # Note: colocated_inference=True since we're using the same cluster
+    refit_policy_generation(
+        policy, 
+        vllm_inference_policy, 
+        colocated_inference=True, 
+        _refit_buffer_size_gb=refit_buffer_size_gb
+    )
     print("Model refitting completed")
 
 
@@ -546,8 +548,8 @@ def main():
     generation_data = prepare_input_data(args.prompt, tokenizer)
 
     # prepare refit info
-    # state_dict_info = policy.prepare_refit_info()
-    # vllm_inference_policy.prepare_refit_info(state_dict_info)
+    state_dict_info = policy.prepare_refit_info()
+    vllm_inference_policy.prepare_refit_info(state_dict_info)
 
     # Perform model refitting
     run_model_refitting(policy, vllm_inference_policy, args.refit_buffer_size_gb)
