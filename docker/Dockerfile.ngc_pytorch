@@ -76,7 +76,8 @@ ENV UV_NO_INSTALL_PACKAGES=${UV_NO_INSTALL_PACKAGES}
 ENV PATH="/opt/nemo_rl_venv/bin:$PATH"
 
 # First copy only the dependency files
-COPY --from=nemo-rl pyproject.toml uv.lock docker/ngc-pytorch-overrides.txt ./
+COPY --from=nemo-rl pyproject.toml uv.lock ./
+COPY --from=nemo-rl docker/ngc-pytorch-overrides.txt ./docker/
 COPY --from=nemo-rl --link 3rdparty/ ./3rdparty/
 
 
