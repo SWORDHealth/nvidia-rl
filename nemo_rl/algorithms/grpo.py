@@ -434,7 +434,7 @@ def grpo_train(
         val_metrics["entropy"] = val_entropy.item()
         policy.offload_after_refit()
 
-        logger.log_metrics(val_metrics, step, prefix="validation")
+    logger.log_metrics(val_metrics, step, prefix="validation")
         logger.log_metrics(validation_timings, step, prefix="timing/validation")
 
     # Run grpo training (single-turn)
