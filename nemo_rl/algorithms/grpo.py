@@ -427,12 +427,12 @@ def grpo_train(
         )
         policy_generation.finish_generation()
 
-        policy.prepare_for_training()
-        val_entropy = policy.get_entropy(val_batch)["entropy"]
-        tok_mask = val_batch["token_mask"][:, 1:]
-        val_entropy = (val_entropy * tok_mask).sum() / tok_mask.sum()
-        val_metrics["entropy"] = val_entropy.item()
-        policy.offload_after_refit()
+        # policy.prepare_for_training()
+        # val_entropy = policy.get_entropy(val_batch)["entropy"]
+        # tok_mask = val_batch["token_mask"][:, 1:]
+        # val_entropy = (val_entropy * tok_mask).sum() / tok_mask.sum()
+        # val_metrics["entropy"] = val_entropy.item()
+        # policy.offload_after_refit()
 
         logger.log_metrics(val_metrics, step, prefix="validation")
         logger.log_metrics(validation_timings, step, prefix="timing/validation")
