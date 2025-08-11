@@ -381,13 +381,6 @@ class VllmGenerationWorker:
         # used in update_weights_from_ipc_handles
         self.vllm_device_ids = None
 
-        # from nemo_rl.models.generation.fp8 import global_fp8_config
-        # self.llm.collective_rpc(
-        #     "init_fp8",
-        #     args=(
-        #         global_fp8_config,
-        #     ),
-        # )
 
     def post_init(self):
         self.vllm_device_ids = self.report_device_id()
