@@ -45,17 +45,36 @@ ARG MAX_JOBS=32
 WORKDIR /opt
 COPY --from=nemo-rl uv.lock /tmp/uv.lock
 
+RUN <<"EOF" bash -exu
+echo "Building vLLM from source for PyTorch base image"
+
+# Modify torch package metadata to remove NVIDIA version suffix
+TORCH_DIR=$(python -c "import torch; print(torch.__path__[0])" 2>/dev/null || echo "")
+if [ -n "$TORCH_DIR" ]; then
+    # Find the torch package metadata file
+    METADATA_FILE=$(find "$TORCH_DIR" -name "METADATA" -o -name "PKG-INFO" 2>/dev/null | head -1)
+    if [ -n "$METADATA_FILE" ]; then
+        echo "Found torch metadata file: $METADATA_FILE"
+        # Remove NVIDIA version suffix from Version field (e.g., .nv25.6, .nv25.7, etc.)
+        sed -i 's/^Version: \(.*\)\.nv[0-9]\+\.\([0-9]\+\)/Version: \1/' "$METADATA_FILE"
+        echo "Modified torch package metadata to remove NVIDIA version suffix"
+    else
+        echo "Warning: Could not find torch metadata file"
+    fi
+else
+    echo "Warning: Could not locate torch package directory"
+fi
+
 # Extract vLLM version from uv.lock and build that version
-RUN echo "Building vLLM from source for PyTorch base image" && \
-    VLLM_VERSION=$(grep -A 1 'name = "vllm"' /tmp/uv.lock | grep 'version =' | sed 's/version = "\(.*\)"/\1/') && \
-    echo "Building vLLM version: $VLLM_VERSION" && \
-    git clone https://github.com/vllm-project/vllm.git && \
-    cd vllm && \
-    git checkout v$VLLM_VERSION && \
-    python use_existing_torch.py && \
-    uv venv --system-site-packages && \
-    uv pip install -r requirements/build.txt && \
-    uv build --wheel --no-build-isolation -v .;
+VLLM_VERSION=$(grep -A 1 'name = "vllm"' /tmp/uv.lock | grep 'version =' | sed 's/version = "\(.*\)"/\1/') && \
+echo "Building vLLM version: $VLLM_VERSION"
+git clone https://github.com/vllm-project/vllm.git
+cd vllm
+git checkout v$VLLM_VERSION
+python use_existing_torch.py
+pip install -r requirements/build.txt
+pip wheel --no-build-isolation -v .
+EOF
 
 FROM base AS hermetic
 
@@ -84,7 +103,7 @@ COPY --from=nemo-rl --link 3rdparty/ ./3rdparty/
 RUN --mount=type=bind,from=build_vllm,source=/opt/,target=/tmp/build_vllm/ <<"EOF" bash -exu
 # uv sync has a more reliable resolver than simple uv pip install which can fail
 # The venv is symlinked to avoid bloating the layer size
-pip install --no-cache-dir /tmp/build_vllm/vllm/dist/vllm*.whl
+pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl
 pip install --no-cache-dir -r docker/ngc-pytorch-overrides.txt
 uv venv --system-site-packages ${UV_PROJECT_ENVIRONMENT}
 uv sync --link-mode symlink --locked --inexact --extra vllm --extra mcore --extra automodel --all-groups --no-install-project $UV_NO_INSTALL_PACKAGES
