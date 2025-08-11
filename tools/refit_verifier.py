@@ -149,6 +149,13 @@ def setup_configs(args, tokenizer):
             "max_new_tokens": args.max_sequence_length,
             "do_sample": False,
             "pad_token_id": tokenizer.eos_token_id,
+            "colocated": {
+                "enabled": True,
+                "resources": {
+                    "gpus_per_node": None,
+                    "num_nodes": None,
+                },
+            },
         },
         "precision": "bfloat16",
         "pipeline_dtype": "bfloat16",
