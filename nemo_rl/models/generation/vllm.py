@@ -244,7 +244,7 @@ class VllmGenerationWorker:
 
             def _patch_vllm_init_workers_ray():
                 # Patch the vLLM ray_distributed_executor.py file to pass custom runtime_env in _init_workers_ray call.
-                # This allows passing custom py_executable to worker initialization.
+                # This allows passing custom env_vars and py_executable to worker initialization.
 
                 try:
                     import vllm.executor.ray_distributed_executor as ray_executor_module
@@ -255,7 +255,9 @@ class VllmGenerationWorker:
                         content = f.read()
 
                     old_line = "self._init_workers_ray(placement_group)"
-                    new_line = f'self._init_workers_ray(placement_group, runtime_env={{"py_executable": "{self.py_executable}"}})'
+
+                    nccl_cumem_enable = os.environ["NCCL_CUMEM_ENABLE"]
+                    new_line = f'self._init_workers_ray(placement_group, runtime_env={{"env_vars": {{"NCCL_CUMEM_ENABLE": "{nccl_cumem_enable}"}}, "py_executable": "{self.py_executable}"}})'
 
                     if new_line in content:
                         return
@@ -274,6 +276,7 @@ class VllmGenerationWorker:
                     pass
 
             _patch_vllm_init_workers_ray()
+            logger.info("Successfully patched vllm _init_workers_ray.")
 
         except (ImportError, AttributeError):
             # vllm not installed or has a different structure, skipping patch.
