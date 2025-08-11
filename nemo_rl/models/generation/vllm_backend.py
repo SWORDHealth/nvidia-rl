@@ -99,11 +99,6 @@ class VllmInternalWorkerExtension:
             weights = []
 
             if is_tensor_packed:
-                assert self.state_dict_info is not None, (
-                    "state_dict_info is not prepared. "
-                    "Please call prepare_refit_info when initializing the worker."
-                )
-
                 # Extract packed tensor from IPC handle
                 dtype_to_packed_tensor = {}
                 for dtype, tensor_handle in all_handles:
@@ -114,17 +109,11 @@ class VllmInternalWorkerExtension:
                     tensor = func(*list_args)
                     dtype_to_packed_tensor[dtype] = tensor
 
-                weights = []
-                dtype_to_offset = defaultdict(lambda: 0)
-                for key in list_keys:
-                    shape, dtype, size = self.state_dict_info[key]
-                    weights.append(
-                        (
-                            key,
-                            dtype_to_packed_tensor[dtype][
-                                dtype_to_offset[dtype] : dtype_to_offset[dtype] + size
-                            ].view(*shape),
-                        )
+                # Unpack tensor to weights. Here we only return a view of the tensor to avoid
+                # using extra memory.
+                for key, (shape, dtype, offset, size) in tensor_metadata.items():
+                    tensor = dtype_to_packed_tensor[dtype][offset : offset + size].view(
+                        *shape
                     )
                     dtype_to_offset[dtype] += size
 
@@ -155,15 +144,10 @@ class VllmInternalWorkerExtension:
             )
             return False
 
-    def update_weights_from_collective(self) -> bool:
+    def update_weights_from_collective(self, info: dict[str, Any]) -> bool:
         """Update the model weights from collective communication."""
-        assert self.state_dict_info is not None, (
-            "state_dict_info is not prepared. "
-            "Please call prepare_refit_info when initializing the worker."
-        )
-
         try:
-            for name, (shape, dtype) in self.state_dict_info.items():
+            for name, (shape, dtype) in info.items():
                 weight = torch.empty(shape, dtype=dtype, device="cuda")
                 self.model_update_group.broadcast(weight, src=0)
                 self.model_runner.model.load_weights(weights=[(name, weight)])
