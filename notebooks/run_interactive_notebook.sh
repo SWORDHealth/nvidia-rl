@@ -20,6 +20,7 @@ CPUS_PER_TASK=16
 MEM="64G"
 PARTITION="interactive"
 CONTAINER_IMAGE="/lustre/fsw/portfolios/llmservice/users/mfathi/containers/nemo_rl_base.sqsh"
+PROJECT_DIR=$(pwd) # Capture the current working directory
 KERNEL_NAME="slurm-job-kernel-mfathi"
 VENV_DIR=".venv"
 
@@ -36,9 +37,6 @@ mkdir -p "$LOG_DIR"
 # This block defines the commands that will be executed on the compute node
 # inside the container after the resources are allocated.
 COMMAND_BLOCK=$(cat <<'EOF'
-# Ensure we are in the correct starting directory
-cd $SLURM_SUBMIT_DIR
-
 # --- Environment Setup on the Compute Node ---
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
@@ -120,6 +118,8 @@ srun --job-name=${JOB_NAME} \
      --partition=${PARTITION} \
      --account=${ACCOUNT} \
      --container-image=${CONTAINER_IMAGE} \
+     --container-workdir=${PROJECT_DIR} \
+     --container-mounts=${PROJECT_DIR}:${PROJECT_DIR} \
      --output="${LOG_DIR}/notebook_job_%j.log" \
      bash -c "$COMMAND_BLOCK"
 
