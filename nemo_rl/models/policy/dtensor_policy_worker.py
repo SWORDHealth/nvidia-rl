@@ -573,6 +573,10 @@ class DTensorPolicyWorker:
                         use_cache=False,
                     )
 
+                # Divide logits by temperature
+                if "generation" in self.cfg and self.cfg["generation"] is not None:
+                    outputs.logits.div_(self.cfg["generation"]["temperature"])
+
                 if isinstance(outputs.logits, DTensor):
                     token_logprobs = get_logprobs_from_vocab_parallel_logits(
                         outputs.logits.to(torch.float32), input_ids

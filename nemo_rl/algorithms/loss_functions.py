@@ -107,7 +107,7 @@ class ClippedPGLossFn(LossFunction):
 
     def __call__(
         self,
-        next_token_logits: Tensor,
+        next_token_logits: Tensor, # logits of the whole vocab
         data: BatchedDataDict[ClippedPGLossDataDict],
         global_valid_seqs: torch.Tensor,
         global_valid_toks: torch.Tensor,
@@ -116,8 +116,8 @@ class ClippedPGLossFn(LossFunction):
         token_mask = data["token_mask"][:, 1:]
         sample_mask = data["sample_mask"]
         advantages = data["advantages"][:, 1:]
-        prev_logprobs = data["prev_logprobs"][:, 1:]
-        generation_logprobs = data["generation_logprobs"][:, 1:]
+        prev_logprobs = data["prev_logprobs"][:, 1:] # logprobs of the selected tokens from the sampling distribution in PPO
+        generation_logprobs = data["generation_logprobs"][:, 1:] # vllm inference logprobs of the selected tokens
         reference_policy_logprobs = data["reference_policy_logprobs"][:, 1:]
 
         mask = token_mask * sample_mask.unsqueeze(-1)
