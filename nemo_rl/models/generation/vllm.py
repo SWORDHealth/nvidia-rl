@@ -256,8 +256,9 @@ class VllmGenerationWorker:
 
                     old_line = "self._init_workers_ray(placement_group)"
 
-                    nccl_cumem_enable = os.environ["NCCL_CUMEM_ENABLE"]
-                    new_line = f'self._init_workers_ray(placement_group, runtime_env={{"env_vars": {{"NCCL_CUMEM_ENABLE": "{nccl_cumem_enable}"}}, "py_executable": "{self.py_executable}"}})'
+                    nccl_cumem_enable = os.environ.get("NCCL_CUMEM_ENABLE", "0")
+                    nccl_nvls_enable = os.environ.get("NCCL_NVLS_ENABLE", "0")
+                    new_line = f'self._init_workers_ray(placement_group, runtime_env={{"env_vars": {{"NCCL_CUMEM_ENABLE": "{nccl_cumem_enable}", "NCCL_NVLS_ENABLE": "{nccl_nvls_enable}"}}, "py_executable": "{self.py_executable}"}})'
 
                     if new_line in content:
                         return
