@@ -59,9 +59,10 @@ source $VENV_DIR/bin/activate
 echo "Virtual environment activated."
 echo
 
-# Step 2: Install dependencies from requirements.txt using uv
-echo "[2/4] Installing Python dependencies with uv..."
-uv pip install -r requirements.txt
+# Step 2: Install dependencies from requirements.txt using pip
+echo "[2/4] Installing Python dependencies with pip..."
+pip install --upgrade pip
+pip install -r requirements.txt
 if [ $? -ne 0 ]; then
     echo "Error: Failed to install dependencies. Exiting."
     exit 1
