@@ -381,7 +381,6 @@ class VllmGenerationWorker:
         # used in update_weights_from_ipc_handles
         self.vllm_device_ids = None
 
-
     def post_init(self):
         self.vllm_device_ids = self.report_device_id()
 
