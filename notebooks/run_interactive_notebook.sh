@@ -121,7 +121,6 @@ srun --job-name=${JOB_NAME} \
      --account=${ACCOUNT} \
      --container-image=${CONTAINER_IMAGE} \
      --output="${LOG_DIR}/notebook_job_%j.log" \
-     --pty \
      bash -c "$COMMAND_BLOCK"
 
 echo "Interactive job finished."
