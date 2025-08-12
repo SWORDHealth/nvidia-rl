@@ -114,11 +114,6 @@ from nemo_rl.models.megatron.common import (
 )
 from nemo_rl.models.megatron.community_import import import_model_from_hf_name
 from nemo_rl.models.megatron.converters.common import MegatronToHFConverter
-from nemo_rl.models.megatron.refit_utils import (
-    gather_params,
-    get_local_key_to_global_keys,
-    get_param_info,
-)
 from nemo_rl.models.policy import PolicyConfig
 from nemo_rl.models.policy.interfaces import (
     LogprobOutputSpec,
@@ -739,8 +734,12 @@ class MegatronPolicyWorker:
 
         # vars used for refit
         ## will be initialized in prepare_refit_info
+        # refit_param_info_mcore combines the conversion tasks with the param memory
+        # [(MegatronWeightConversionTask, estimated_memory), ...]
+        self.refit_conversion_tasks = None  # Meta data for conversion params from megatron bridge
         self.refit_param_info_mcore = None
-        self.local_key_to_global_keys = None
+        self.refit_param_info_hf = None
+
         ## used for streaming update inference engine weights
         self._held_gather_buffer = None
 
@@ -1420,20 +1419,13 @@ class MegatronPolicyWorker:
     @torch.no_grad()
     @wrap_with_nvtx_name("megatron_policy_worker/prepare_refit_info")
     def prepare_refit_info(self) -> None:
-        # Get parameter info for refit
-        # param_info: list of ((name, shape, dtype), size_in_bytes) tuples
-        self.refit_param_info_mcore = get_param_info(self.model, self.dtype)
+        # Get parameter info for refit / mcore side info
+        self.refit_param_info_mcore = self._calculate_refit_param_info()
 
-        # Create a map that maps any local parameter name to a list of global parameter names.
-        # This map is repeatedly used by parameter gatherring phase during refit of every step.
-        self.local_key_to_global_keys = get_local_key_to_global_keys(
-            self.model, state_dict_info=self.refit_param_info_mcore
-        )
-
-        # Collect tensor metadata for refit
+        # Collect tensor metadata for refit / hf side info
         refit_param_info_hf = {}
         hf_params_generator = self.megatron_bridge.export_hf_weights(
-            [self.model],
+            [self.model], show_progress=False,
         )
         for name, tensor in hf_params_generator:
             if self.is_generation_colocated:
@@ -1441,7 +1433,54 @@ class MegatronPolicyWorker:
             else:
                 metadata = (tensor.shape, tensor.dtype)
             refit_param_info_hf[name] = metadata
+        self.refit_param_info_hf = refit_param_info_hf
         return refit_param_info_hf
+
+    def _calculate_refit_param_info(self) -> list[tuple[str, int]]:
+        """Calculate parameter information for refit.
+        
+        Each task contains:
+        - param_name: Local parameter name without module prefixes
+        - mapping: MegatronParamMapping instance for weight transformation
+        - pp_rank: Pipeline-parallel rank owning the parameter
+        - vp_stage: Virtual-pipeline stage index
+        - megatron_module: Reference to Megatron model/submodule
+        - param_weight: Target parameter tensor for converted weight
+        
+        Returns:
+            List of (parameter_name, size_in_bytes) tuples.
+        """
+        self.refit_conversion_tasks = self.megatron_bridge.get_conversion_tasks([self.model])
+        param_info = []
+
+        def calculate_size_in_bytes(param, tp_size, ep_size):
+            # Calculate size for this parameter
+            prec_to_bytes = {
+                torch.bfloat16: 2,
+                torch.float16: 2,
+                torch.float32: 4,
+            }
+            scale = prec_to_bytes[self.dtype] / prec_to_bytes[param.dtype]
+            size_in_bytes = (
+                param.element_size()
+                * param.numel()
+                * tp_size
+                * ep_size
+                * scale
+            )
+            return size_in_bytes
+        
+        for task in self.refit_conversion_tasks:
+            param_info.append(
+                (
+                    task.param_name,
+                    calculate_size_in_bytes(
+                        task.param_weight, task.mapping.tp_size,
+                        task.mapping.ep_size if task.mapping.is_expert else 1
+                    ),
+                )
+            )
+        return param_info
 
     @wrap_with_nvtx_name("megatron_policy_worker/prepare_weights_for_ipc")
     def prepare_weights_for_ipc(self) -> tuple[list[tuple[str, int]], float]:
@@ -1478,21 +1517,16 @@ class MegatronPolicyWorker:
             del self._held_gather_buffer
             self._held_gather_buffer = None
 
-        # gathered_megatron_params = gather_params(
-        #     self.model,
-        #     keys,
-        #     key_to_global_keys=self.local_key_to_global_keys,
-        # )
+        # extract the conversion tasks in this pack
+        conversion_tasks = self.refit_conversion_tasks[:len(keys)]
+        self.refit_conversion_tasks = self.refit_conversion_tasks[len(keys):]
 
         hf_params_generator = self.megatron_bridge.export_hf_weights(
-            [self.model],
+            [self.model], show_progress=False, conversion_tasks=conversion_tasks,
         )
         gathered_hf_params = {
             name: tensor for name, tensor in hf_params_generator
         }
-        # gathered_hf_params = self.megatron_to_hf_converter.convert(
-        #     gathered_megatron_params, self.model.config
-        # )
 
         # Get device UUID for IPC handles
         device_uuid = self.report_device_id()
@@ -1563,21 +1597,17 @@ class MegatronPolicyWorker:
     @torch.no_grad()
     def broadcast_weights_for_collective(self) -> None:
         """Broadcast the weights for collective communication."""
-        for key, _ in self.refit_param_info_mcore:
-            # gather megatron params
-            gathered_megatron_params = gather_params(
-                self.model,
-                [key],
-                key_to_global_keys=self.local_key_to_global_keys,
-            )
-            # convert to hf params
-            gathered_hf_params = self.megatron_to_hf_converter.convert(
-                gathered_megatron_params, self.model.config
-            )
-            # broadcast from train rank0 worker to inference workers
-            if self.rank == 0:
-                for _, tensor in gathered_hf_params.items():
-                    self.model_update_group.broadcast(tensor, src=0)
+
+        hf_params_generator = self.megatron_bridge.export_hf_weights(
+            [self.model], show_progress=False,
+        )
+        gathered_hf_params = {
+            name: tensor for name, tensor in hf_params_generator
+        }
+        # broadcast from train rank0 worker to inference workers
+        if self.rank == 0:
+            for _, tensor in gathered_hf_params.items():
+                self.model_update_group.broadcast(tensor, src=0)
 
     def prepare_for_lp_inference(self):
         self.model = self.move_model(self.model, "cuda", move_grads=False)
