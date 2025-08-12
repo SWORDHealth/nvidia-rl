@@ -82,12 +82,12 @@ COPY --from=nemo-rl --link 3rdparty/ ./3rdparty/
 
 
 RUN --mount=type=bind,from=build_vllm,source=/opt/,target=/tmp/build_vllm/ <<"EOF" bash -exu
-# Install vllm and ensure certain packages are not upgraded or installed
-pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl -r docker/ngc-pytorch-overrides.txt
-
 # uv sync has a more reliable resolver than simple uv pip install which can fail
 # The venv is symlinked to avoid bloating the layer size
 uv venv --system-site-packages ${UV_PROJECT_ENVIRONMENT}
+
+# Install vllm and ensure certain packages are not upgraded or installed
+uv pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl --overrides docker/ngc-pytorch-overrides.txt
 uv sync --link-mode symlink --locked --extra vllm --extra mcore --extra automodel --all-groups --no-install-project $UV_NO_INSTALL_PACKAGES
 EOF
 
