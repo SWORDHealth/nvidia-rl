@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SBATCH --job-name=interactive-notebook
-# SBATCH --output=$LOG/notebook_job_%j.log
+# SBATCH --output=$LOG/notebooks/notebook_job_%j.log
 # SBATCH --account=$ACCOUNT
 # SBATCH --nodes=1
 # SBATCH --ntasks-per-node=1
@@ -10,7 +10,7 @@
 # SBATCH --gpus=1
 # SBATCH --partition=interactive
 # SBATCH --container-image=/lustre/fsw/portfolios/llmservice/users/mfathi/containers/nemo_rl_base.sqsh
-# SBATCH --time=04:00:00
+# SBATCH --time=00:30:00
 
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
