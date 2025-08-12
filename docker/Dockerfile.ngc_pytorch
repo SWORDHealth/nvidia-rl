@@ -27,11 +27,9 @@ apt-get clean
 rm -rf /var/lib/apt/lists/*
 EOF
 
-# Install uv and python
+# Install uv at /usr/local/bin in case the root home directory is bind mounted
 ARG UV_VERSION=0.7.2
-ARG PYTHON_VERSION=3.12
-ENV PATH="/root/.local/bin:$PATH"
-RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | XDG_BIN_HOME=/usr/local/bin sh
 
 # Disable usage stats by default for users who are sensitive to sharing usage.
 # Users are encouraged to enable if the wish.
@@ -77,16 +75,15 @@ ENV PATH="/opt/nemo_rl_venv/bin:$PATH"
 
 # First copy only the dependency files
 COPY --from=nemo-rl pyproject.toml uv.lock ./
-COPY --from=nemo-rl docker/ngc-pytorch-overrides.txt ./docker/
 COPY --from=nemo-rl --link 3rdparty/ ./3rdparty/
 
 
 RUN --mount=type=bind,from=build_vllm,source=/opt/,target=/tmp/build_vllm/ <<"EOF" bash -exu
-pip install --no-cache-dir --no-deps /tmp/build_vllm/vllm/vllm*.whl
 
 # uv sync has a more reliable resolver than simple uv pip install which can fail
 # The venv is symlinked to avoid bloating the layer size
 uv venv --system-site-packages ${UV_PROJECT_ENVIRONMENT}
+uv pip install --no-cache-dir --no-deps /tmp/build_vllm/vllm/vllm*.whl
 uv sync --link-mode symlink --locked --extra vllm --extra mcore --extra automodel --all-groups --no-install-project $UV_NO_INSTALL_PACKAGES
 EOF
 
