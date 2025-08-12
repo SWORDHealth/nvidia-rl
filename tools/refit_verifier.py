@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Refitted Policy Comparison Script
+"""Refitted Policy Comparison Script
 
 This script compares logprobs between a Megatron policy and a vLLM policy
 after performing model weight refitting. It demonstrates the workflow for
@@ -56,82 +55,81 @@ tok_60          pos_60     60         -6.830355    -6.830397    0.000041
 
 import argparse
 import copy
+
 import ray
 import torch
 from transformers import AutoTokenizer
 
+from nemo_rl.algorithms.grpo import refit_policy_generation
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.distributed.virtual_cluster import RayVirtualCluster
-from nemo_rl.models.policy.lm_policy import Policy
 from nemo_rl.models.generation import configure_generation_config
 from nemo_rl.models.generation.vllm import VllmGeneration
-from nemo_rl.algorithms.grpo import refit_policy_generation
+from nemo_rl.models.policy.lm_policy import Policy
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Compare Megatron and vLLM policy logprobs after refitting")
-    
+    parser = argparse.ArgumentParser(
+        description="Compare Megatron and vLLM policy logprobs after refitting"
+    )
+
     parser.add_argument(
-        "--model_name", 
-        type=str, 
+        "--model_name",
+        type=str,
         default="/root/checkpoints/llama4-scout-custom-init",
-        help="Path to the model checkpoint"
+        help="Path to the model checkpoint",
     )
     parser.add_argument(
-        "--tp_size", 
-        type=int, 
+        "--tp_size",
+        type=int,
         default=1,
-        help="Tensor parallelism size (TP) for Megatron"
+        help="Tensor parallelism size (TP) for Megatron",
     )
     parser.add_argument(
-        "--ep_size", 
-        type=int, 
+        "--ep_size",
+        type=int,
         default=1,
-        help="Expert parallelism size (EP) for Megatron"
+        help="Expert parallelism size (EP) for Megatron",
     )
     parser.add_argument(
-        "--pp_size", 
-        type=int, 
+        "--pp_size",
+        type=int,
         default=1,
-        help="Pipeline parallelism size (PP) for Megatron"
+        help="Pipeline parallelism size (PP) for Megatron",
     )
     parser.add_argument(
-        "--max_new_tokens", 
-        type=int, 
+        "--max_new_tokens",
+        type=int,
         default=10,
-        help="Maximum number of new tokens to generate"
+        help="Maximum number of new tokens to generate",
     )
     parser.add_argument(
-        "--max_sequence_length", 
-        type=int, 
+        "--max_sequence_length",
+        type=int,
         default=256,
-        help="Maximum total sequence length"
+        help="Maximum total sequence length",
     )
     parser.add_argument(
-        "--refit_buffer_size_gb", 
-        type=int, 
-        default=4,
-        help="Refit buffer size in GB"
+        "--refit_buffer_size_gb", type=int, default=4, help="Refit buffer size in GB"
     )
     parser.add_argument(
-        "--prompt", 
-        type=str, 
+        "--prompt",
+        type=str,
         default="Here is a short introduction to me:",
-        help="Input prompt for generation"
+        help="Input prompt for generation",
     )
-    
+
     return parser.parse_args()
 
 
 def setup_configs(args, tokenizer):
-    """
-    Setup configuration dictionaries for Megatron and vLLM.
-    
+    """Setup configuration dictionaries for Megatron and vLLM.
+
     Args:
         args: Parsed command line arguments
         tokenizer: HuggingFace tokenizer
-        
+
     Returns:
         tuple: (megatron_config, vllm_config)
     """
@@ -199,7 +197,7 @@ def setup_configs(args, tokenizer):
             "activation_checkpointing": False,
             "moe_router_dtype": "fp64",
             "moe_router_load_balancing_type": "none",
-            "moe_router_bias_update_rate": 0.,
+            "moe_router_bias_update_rate": 0.0,
             "pipeline_dtype": "bfloat16",
             "freeze_moe_router": False,
             "apply_rope_fusion": False,
@@ -237,8 +235,8 @@ def setup_configs(args, tokenizer):
                 "overlap_param_gather": False,
                 "average_in_collective": False,
                 "use_custom_fsdp": False,
-                "data_parallel_sharding_strategy": "optim_grads_params"
-            }
+                "data_parallel_sharding_strategy": "optim_grads_params",
+            },
         },
     }
 
@@ -277,23 +275,22 @@ def setup_configs(args, tokenizer):
         },
         "vllm_kwargs": {},
     }
-    
+
     # Configure vLLM with tokenizer
     vllm_config = configure_generation_config(vllm_config, tokenizer)
-    
+
     return megatron_config, vllm_config
 
 
 def setup_clusters_and_policies(args, megatron_config, vllm_config, tokenizer):
-    """
-    Setup Ray clusters and initialize policies.
-    
+    """Setup Ray clusters and initialize policies.
+
     Args:
         args: Parsed command line arguments
         megatron_config: Megatron configuration dictionary
         vllm_config: vLLM configuration dictionary
         tokenizer: HuggingFace tokenizer
-        
+
     Returns:
         tuple: (megatron_cluster, policy, vllm_inference_policy)
     """
@@ -309,37 +306,40 @@ def setup_clusters_and_policies(args, megatron_config, vllm_config, tokenizer):
 
     print("Instantiating Policy with Megatron backend...")
     policy = Policy(
-        cluster=megatron_cluster, 
-        config=megatron_config, 
-        tokenizer=tokenizer, 
-        init_reference_model=False, 
-        init_optimizer=False
+        cluster=megatron_cluster,
+        config=megatron_config,
+        tokenizer=tokenizer,
+        init_reference_model=False,
+        init_optimizer=False,
     )
 
     # Create vLLM inference configuration with limited generation
     vllm_inference_config = vllm_config.copy()
     vllm_inference_config["max_new_tokens"] = args.max_new_tokens
-    vllm_inference_config = configure_generation_config(vllm_inference_config, tokenizer)
+    vllm_inference_config = configure_generation_config(
+        vllm_inference_config, tokenizer
+    )
 
     # Create vLLM policy for inference-only logprobs
-    vllm_inference_policy = VllmGeneration(cluster=megatron_cluster, config=vllm_inference_config)
+    vllm_inference_policy = VllmGeneration(
+        cluster=megatron_cluster, config=vllm_inference_config
+    )
 
     return megatron_cluster, policy, vllm_inference_policy
 
 
 def prepare_input_data(prompt, tokenizer):
-    """
-    Tokenize the input prompt and prepare generation data.
-    
+    """Tokenize the input prompt and prepare generation data.
+
     Args:
         prompt: Input text prompt
         tokenizer: HuggingFace tokenizer
-        
+
     Returns:
         BatchedDataDict: Prepared input data
     """
     print("Preparing input data...")
-    
+
     # Tokenize the prompt
     tokenized = tokenizer(
         [prompt],
@@ -354,45 +354,45 @@ def prepare_input_data(prompt, tokenizer):
     attention_mask = tokenized["attention_mask"]
     input_lengths = attention_mask.sum(dim=1).to(torch.int32)
 
-    generation_data = BatchedDataDict({
-        "input_ids": input_ids,
-        "input_lengths": input_lengths,
-    })
-    
+    generation_data = BatchedDataDict(
+        {
+            "input_ids": input_ids,
+            "input_lengths": input_lengths,
+        }
+    )
+
     return generation_data
 
 
 def run_model_refitting(policy, vllm_inference_policy, refit_buffer_size_gb):
-    """
-    Perform model weight refitting between Megatron and vLLM policies.
-    
+    """Perform model weight refitting between Megatron and vLLM policies.
+
     Args:
         policy: Megatron policy
         vllm_inference_policy: vLLM inference policy
         refit_buffer_size_gb: Buffer size for refitting in GB
     """
     print("\n--- Performing Model Refitting ---")
-    
+
     # Perform the refitting between policies using GRPO's refit function
     # Note: colocated_inference=True since we're using the same cluster
     refit_policy_generation(
-        policy, 
-        vllm_inference_policy, 
-        colocated_inference=True, 
-        _refit_buffer_size_gb=refit_buffer_size_gb
+        policy,
+        vllm_inference_policy,
+        colocated_inference=True,
+        _refit_buffer_size_gb=refit_buffer_size_gb,
     )
     print("Model refitting completed")
 
 
 def generate_and_compare_logprobs(policy, vllm_inference_policy, generation_data):
-    """
-    Generate outputs and compare logprobs between vLLM and Megatron policies.
-    
+    """Generate outputs and compare logprobs between vLLM and Megatron policies.
+
     Args:
         policy: Megatron policy
         vllm_inference_policy: vLLM inference policy
         generation_data: Input data for generation
-        
+
     Returns:
         tuple: (vllm_logprobs_data, megatron_generation_data)
     """
@@ -405,28 +405,33 @@ def generate_and_compare_logprobs(policy, vllm_inference_policy, generation_data
     # Generate with Megatron policy
     print("\n--- Getting Megatron Generation ---")
     policy.prepare_for_generation()
-    
+
     # Prepare input data for Megatron using vLLM outputs
     megatron_input_data = copy.deepcopy(generation_data)
     print("=" * 100)
     print(megatron_input_data)
     print(vllm_logprobs_data)
     megatron_input_data["input_ids"] = vllm_logprobs_data["output_ids"]
-    megatron_input_data["input_lengths"] = vllm_logprobs_data["unpadded_sequence_lengths"]
+    megatron_input_data["input_lengths"] = vllm_logprobs_data[
+        "unpadded_sequence_lengths"
+    ]
 
     # Get logprobs from Megatron
     policy.prepare_for_lp_inference()
     megatron_generation_data = policy.get_logprobs(megatron_input_data)
     print(f"Megatron Generation shape: {megatron_generation_data['logprobs'].shape}")
-    print(f"Megatron Generation sample: {megatron_generation_data['logprobs'][0, -10:]}")
+    print(
+        f"Megatron Generation sample: {megatron_generation_data['logprobs'][0, -10:]}"
+    )
 
     return vllm_logprobs_data, megatron_generation_data
 
 
-def analyze_logprob_differences(vllm_logprobs_data, megatron_generation_data, generation_data, tokenizer, prompt):
-    """
-    Analyze and display differences between vLLM and Megatron logprobs.
-    
+def analyze_logprob_differences(
+    vllm_logprobs_data, megatron_generation_data, generation_data, tokenizer, prompt
+):
+    """Analyze and display differences between vLLM and Megatron logprobs.
+
     Args:
         vllm_logprobs_data: vLLM generation results
         megatron_generation_data: Megatron generation results
@@ -436,7 +441,9 @@ def analyze_logprob_differences(vllm_logprobs_data, megatron_generation_data, ge
     """
     print("\n--- Comparing Logprobs ---")
     print(f"Input prompt: {prompt}")
-    print(f"Input tokens: {generation_data['input_ids'][0, :generation_data['input_lengths'][0]]}")
+    print(
+        f"Input tokens: {generation_data['input_ids'][0, : generation_data['input_lengths'][0]]}"
+    )
 
     # Extract generation parameters
     input_length = generation_data["input_lengths"][0].item()
@@ -444,12 +451,16 @@ def analyze_logprob_differences(vllm_logprobs_data, megatron_generation_data, ge
     generated_length = vllm_logprobs_data["generation_lengths"][0].item()
 
     if generated_length > 0:
-        print(f"\nComparing {generated_length} generated tokens (from position {input_length} to {total_length-1}):")
-        
+        print(
+            f"\nComparing {generated_length} generated tokens (from position {input_length} to {total_length - 1}):"
+        )
+
         # Extract generated logprobs
         vllm_gen_logprobs = vllm_logprobs_data["logprobs"][0, input_length:total_length]
-        megatron_gen_logprobs = megatron_generation_data["logprobs"][0, input_length:total_length]
-        
+        megatron_gen_logprobs = megatron_generation_data["logprobs"][
+            0, input_length:total_length
+        ]
+
         print(f"vLLM generated logprobs: {vllm_gen_logprobs}")
         print(f"Megatron generated logprobs: {megatron_gen_logprobs}")
 
@@ -461,17 +472,29 @@ def analyze_logprob_differences(vllm_logprobs_data, megatron_generation_data, ge
 
         # Detailed token-by-token comparison
         _detailed_token_comparison(
-            vllm_gen_logprobs, megatron_gen_logprobs, vllm_logprobs_data,
-            input_length, total_length, tokenizer
+            vllm_gen_logprobs,
+            megatron_gen_logprobs,
+            vllm_logprobs_data,
+            input_length,
+            total_length,
+            tokenizer,
         )
     else:
-        print(f"No generated tokens to compare (input_length: {input_length}, total_length: {total_length})")
+        print(
+            f"No generated tokens to compare (input_length: {input_length}, total_length: {total_length})"
+        )
 
 
-def _detailed_token_comparison(vllm_logprobs, megatron_logprobs, vllm_logprobs_data, input_length, total_length, tokenizer):
-    """
-    Display detailed token-by-token comparison of logprobs.
-    
+def _detailed_token_comparison(
+    vllm_logprobs,
+    megatron_logprobs,
+    vllm_logprobs_data,
+    input_length,
+    total_length,
+    tokenizer,
+):
+    """Display detailed token-by-token comparison of logprobs.
+
     Args:
         vllm_logprobs: vLLM logprobs for generated tokens
         megatron_logprobs: Megatron logprobs for generated tokens
@@ -481,18 +504,22 @@ def _detailed_token_comparison(vllm_logprobs, megatron_logprobs, vllm_logprobs_d
         tokenizer: HuggingFace tokenizer
     """
     print("\n--- Token-by-Token Comparison (Generated Tokens Only) ---")
-    
+
     if total_length > input_length:
         # Get generated tokens if available
         if "output_ids" in vllm_logprobs_data:
-            generated_tokens = vllm_logprobs_data["output_ids"][0, input_length:total_length]
+            generated_tokens = vllm_logprobs_data["output_ids"][
+                0, input_length:total_length
+            ]
         else:
             generated_tokens = torch.arange(input_length, total_length)
 
         # Display header
-        print(f"{'Token':<15} {'Token ID':<10} {'Position':<10} {'vLLM':<12} {'Megatron':<12} {'Diff':<12}")
+        print(
+            f"{'Token':<15} {'Token ID':<10} {'Position':<10} {'vLLM':<12} {'Megatron':<12} {'Diff':<12}"
+        )
         print("-" * 75)
-        
+
         # Display each token comparison
         for i, pos in enumerate(range(input_length, total_length)):
             if "output_ids" in vllm_logprobs_data:
@@ -501,20 +528,21 @@ def _detailed_token_comparison(vllm_logprobs, megatron_logprobs, vllm_logprobs_d
             else:
                 token_id = f"pos_{pos}"
                 token_text = f"tok_{pos}"
-                
+
             vllm_lp = vllm_logprobs[i].item()
             megatron_lp = megatron_logprobs[i].item()
             diff = abs(vllm_lp - megatron_lp)
-            
-            print(f"{token_text:<15} {token_id:<10} {pos:<10} {vllm_lp:<12.6f} {megatron_lp:<12.6f} {diff:<12.6f}")
+
+            print(
+                f"{token_text:<15} {token_id:<10} {pos:<10} {vllm_lp:<12.6f} {megatron_lp:<12.6f} {diff:<12.6f}"
+            )
     else:
         print("No generated tokens to compare in detail.")
 
 
 def cleanup_resources(vllm_inference_policy):
-    """
-    Clean up resources and shutdown policies.
-    
+    """Clean up resources and shutdown policies.
+
     Args:
         vllm_inference_policy: vLLM policy to shutdown
     """
@@ -527,23 +555,23 @@ def main():
     """Main execution function."""
     # Parse command line arguments
     args = parse_args()
-    
+
     # Initialize Ray
     ray.init()
-    
+
     # Setup tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
-    
+
     # Setup configurations
     megatron_config, vllm_config = setup_configs(args, tokenizer)
-    
+
     # Setup clusters and policies
     megatron_cluster, policy, vllm_inference_policy = setup_clusters_and_policies(
         args, megatron_config, vllm_config, tokenizer
     )
-    
+
     # Prepare input data
     generation_data = prepare_input_data(args.prompt, tokenizer)
 
@@ -553,20 +581,24 @@ def main():
 
     # Perform model refitting
     run_model_refitting(policy, vllm_inference_policy, args.refit_buffer_size_gb)
-    
+
     # Generate and compare logprobs
     vllm_logprobs_data, megatron_generation_data = generate_and_compare_logprobs(
         policy, vllm_inference_policy, generation_data
     )
-    
+
     # Analyze differences
     analyze_logprob_differences(
-        vllm_logprobs_data, megatron_generation_data, generation_data, tokenizer, args.prompt
+        vllm_logprobs_data,
+        megatron_generation_data,
+        generation_data,
+        tokenizer,
+        args.prompt,
     )
-    
+
     # Cleanup
     cleanup_resources(vllm_inference_policy)
-    
+
     print("Script completed successfully!")
 
 

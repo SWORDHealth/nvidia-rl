@@ -13,16 +13,51 @@
 # limitations under the License.
 import gc
 import os
-import re
 import time
 import warnings
 from collections import defaultdict
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from functools import partial
-from typing import Any, Iterator, List, Optional, Tuple, TypeVar
+from typing import Any, Iterator, Optional, TypeVar
 
 import ray
 import torch
+from megatron.bridge import AutoBridge
+from megatron.bridge.models.model_provider import get_model
+from megatron.bridge.training import fault_tolerance
+from megatron.bridge.training.checkpointing import (
+    checkpoint_exists,
+    init_checkpointing_context,
+    load_checkpoint,
+    maybe_finalize_async_save,
+    save_checkpoint,
+)
+from megatron.bridge.training.config import (
+    CheckpointConfig,
+    ConfigContainer,
+    DistributedDataParallelConfig,
+    LoggerConfig,
+    OptimizerConfig,
+    SchedulerConfig,
+    TokenizerConfig,
+    TrainingConfig,
+)
+from megatron.bridge.training.initialize import (
+    initialize_megatron,
+    set_jit_fusion_options,
+)
+from megatron.bridge.training.optim import setup_optimizer
+from megatron.bridge.training.setup import (
+    HAVE_FSDP2,
+    _update_model_config_funcs,
+)
+from megatron.bridge.training.state import GlobalState
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
+from megatron.bridge.training.utils.train_utils import (
+    logical_and_across_model_parallel_group,
+    reduce_max_stat_across_model_parallel_group,
+)
+from megatron.bridge.utils.common_utils import get_rank_safe
 from megatron.core import parallel_state
 from megatron.core.distributed import DistributedDataParallel
 from megatron.core.distributed.custom_fsdp import (
@@ -57,42 +92,7 @@ from megatron.inference.text_generation.mcore_engine_server import (
     run_mcore_engine,
 )
 from megatron.training.utils import get_ltor_masks_and_position_ids
-from megatron.bridge import AutoBridge
-from megatron.bridge.training import fault_tolerance
-from megatron.bridge.training.checkpointing import (
-    checkpoint_exists,
-    load_checkpoint,
-    save_checkpoint,
-    init_checkpointing_context,
-    maybe_finalize_async_save,
-)
-from megatron.bridge.training.config import (
-    CheckpointConfig,
-    ConfigContainer,
-    DistributedDataParallelConfig,
-    LoggerConfig,
-    OptimizerConfig,
-    SchedulerConfig,
-    TokenizerConfig,
-    TrainingConfig,
-)
-from megatron.bridge.training.initialize import initialize_megatron, set_jit_fusion_options
-from megatron.bridge.training.optim import setup_optimizer
-from megatron.bridge.training.setup import (
-    HAVE_FSDP2,
-    _update_model_config_funcs,
-)
-from megatron.bridge.training.state import GlobalState
-from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
-from megatron.bridge.training.utils.train_utils import (
-    logical_and_across_model_parallel_group,
-    reduce_max_stat_across_model_parallel_group,
-)
-from megatron.bridge.models.model_provider import get_model
-from megatron.bridge.utils.common_utils import get_rank_safe
-
 from ray.util.queue import Queue
-from torch.distributed import get_process_group_ranks
 from transformers import PreTrainedTokenizerBase
 
 from nemo_rl.algorithms.interfaces import LossFunction, LossType
@@ -113,7 +113,6 @@ from nemo_rl.models.megatron.common import (
     forward_step_arbitrary_loss,
 )
 from nemo_rl.models.megatron.community_import import import_model_from_hf_name
-from nemo_rl.models.megatron.converters.common import MegatronToHFConverter
 from nemo_rl.models.policy import PolicyConfig
 from nemo_rl.models.policy.interfaces import (
     LogprobOutputSpec,
@@ -280,7 +279,9 @@ def destroy_parallel_state():
     # Reset async calls queue to prevent call_idx mismatches after distributed context recreation
     try:
         import nemo.tron.utils.async_utils as nemo_async_utils
-        from megatron.core.dist_checkpointing.strategies.async_utils import AsyncCallsQueue
+        from megatron.core.dist_checkpointing.strategies.async_utils import (
+            AsyncCallsQueue,
+        )
 
         # Clean up any existing async callers first
         old_call_idx = getattr(nemo_async_utils._async_calls_queue, "call_idx", None)
@@ -481,7 +482,9 @@ class MegatronPolicyWorker:
                 f"Pretrained run config not found at {pretrained_run_config} on rank={get_rank_safe()}. This usually means that the one-time HF->mcore conversion on rank=0 saved to a directory not being mounted on this node. Please check "
             )
 
-        cfg_from_pretrained = ConfigContainer.from_yaml(pretrained_run_config, mode=0)  # strict loading
+        cfg_from_pretrained = ConfigContainer.from_yaml(
+            pretrained_run_config, mode=0
+        )  # strict loading
         model_cfg = cfg_from_pretrained.model
         cfg_from_pretrained.logger = LoggerConfig()
 
@@ -736,7 +739,9 @@ class MegatronPolicyWorker:
         ## will be initialized in prepare_refit_info
         # refit_param_info_mcore combines the conversion tasks with the param memory
         # [(MegatronWeightConversionTask, estimated_memory), ...]
-        self.refit_conversion_tasks = None  # Meta data for conversion params from megatron bridge
+        self.refit_conversion_tasks = (
+            None  # Meta data for conversion params from megatron bridge
+        )
         self.refit_param_info_mcore = None
         self.refit_param_info_hf = None
 
@@ -1425,7 +1430,8 @@ class MegatronPolicyWorker:
         # Collect tensor metadata for refit / hf side info
         refit_param_info_hf = {}
         hf_params_generator = self.megatron_bridge.export_hf_weights(
-            [self.model], show_progress=False,
+            [self.model],
+            show_progress=False,
         )
         for name, tensor in hf_params_generator:
             if self.is_generation_colocated:
@@ -1438,7 +1444,7 @@ class MegatronPolicyWorker:
 
     def _calculate_refit_param_info(self) -> list[tuple[str, int]]:
         """Calculate parameter information for refit.
-        
+
         Each task contains:
         - param_name: Local parameter name without module prefixes
         - mapping: MegatronParamMapping instance for weight transformation
@@ -1446,11 +1452,13 @@ class MegatronPolicyWorker:
         - vp_stage: Virtual-pipeline stage index
         - megatron_module: Reference to Megatron model/submodule
         - param_weight: Target parameter tensor for converted weight
-        
+
         Returns:
             List of (parameter_name, size_in_bytes) tuples.
         """
-        self.refit_conversion_tasks = self.megatron_bridge.get_conversion_tasks([self.model])
+        self.refit_conversion_tasks = self.megatron_bridge.get_conversion_tasks(
+            [self.model]
+        )
         param_info = []
 
         def calculate_size_in_bytes(param, tp_size, ep_size):
@@ -1462,21 +1470,18 @@ class MegatronPolicyWorker:
             }
             scale = prec_to_bytes[self.dtype] / prec_to_bytes[param.dtype]
             size_in_bytes = (
-                param.element_size()
-                * param.numel()
-                * tp_size
-                * ep_size
-                * scale
+                param.element_size() * param.numel() * tp_size * ep_size * scale
             )
             return size_in_bytes
-        
+
         for task in self.refit_conversion_tasks:
             param_info.append(
                 (
                     task.param_name,
                     calculate_size_in_bytes(
-                        task.param_weight, task.mapping.tp_size,
-                        task.mapping.ep_size if task.mapping.is_expert else 1
+                        task.param_weight,
+                        task.mapping.tp_size,
+                        task.mapping.ep_size if task.mapping.is_expert else 1,
                     ),
                 )
             )
@@ -1518,15 +1523,15 @@ class MegatronPolicyWorker:
             self._held_gather_buffer = None
 
         # extract the conversion tasks in this pack
-        conversion_tasks = self.refit_conversion_tasks[:len(keys)]
-        self.refit_conversion_tasks = self.refit_conversion_tasks[len(keys):]
+        conversion_tasks = self.refit_conversion_tasks[: len(keys)]
+        self.refit_conversion_tasks = self.refit_conversion_tasks[len(keys) :]
 
         hf_params_generator = self.megatron_bridge.export_hf_weights(
-            [self.model], show_progress=False, conversion_tasks=conversion_tasks,
+            [self.model],
+            show_progress=False,
+            conversion_tasks=conversion_tasks,
         )
-        gathered_hf_params = {
-            name: tensor for name, tensor in hf_params_generator
-        }
+        gathered_hf_params = {name: tensor for name, tensor in hf_params_generator}
 
         # Get device UUID for IPC handles
         device_uuid = self.report_device_id()
@@ -1597,13 +1602,11 @@ class MegatronPolicyWorker:
     @torch.no_grad()
     def broadcast_weights_for_collective(self) -> None:
         """Broadcast the weights for collective communication."""
-
         hf_params_generator = self.megatron_bridge.export_hf_weights(
-            [self.model], show_progress=False,
+            [self.model],
+            show_progress=False,
         )
-        gathered_hf_params = {
-            name: tensor for name, tensor in hf_params_generator
-        }
+        gathered_hf_params = {name: tensor for name, tensor in hf_params_generator}
         # broadcast from train rank0 worker to inference workers
         if self.rank == 0:
             for _, tensor in gathered_hf_params.items():
@@ -1775,7 +1778,9 @@ class MegatronPolicyWorker:
 
         try:
             maybe_finalize_async_save(
-                self.mcore_state, ckpt_cfg=self.mcore_state.cfg.checkpoint, blocking=False
+                self.mcore_state,
+                ckpt_cfg=self.mcore_state.cfg.checkpoint,
+                blocking=False,
             )
             self.mcore_state.cfg.checkpoint.save = weights_path
 

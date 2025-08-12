@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import os
+
 from megatron.bridge import AutoBridge
+
 
 def import_model_from_hf_name(hf_model_name: str, output_path: str):
     bridge = AutoBridge.from_hf_pretrained(hf_model_name)
