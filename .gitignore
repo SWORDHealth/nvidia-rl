@@ -35,7 +35,6 @@ datasets/
 docker/*
 !docker/Dockerfile
 !docker/Dockerfile.ngc_pytorch
-!docker/ngc-pytorch-overrides.txt
 !docker/README.md
 !docker/no-install-pytorch-deps.txt
 wandb/
