@@ -65,6 +65,7 @@ ARG MAX_JOBS
 ARG NVTE_BUILD_THREADS_PER_JOB
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/nemo_rl_venv
+ENV UV_CACHE_DIR=/opt/uv_cache
 ENV UV_LINK_MODE=copy
 
 # Define the no-install-package arguments for PyTorch base images
