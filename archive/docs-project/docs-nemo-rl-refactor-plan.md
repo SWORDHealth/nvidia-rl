@@ -4,9 +4,9 @@ categories: ["internal"]
 tags: ["refactor-plan", "documentation", "nemo-rl"]
 ---
 
-## NeMo RL Documentation Refactor Plan
+# NeMo RL Documentation Refactor Plan
 
-This document presents the refactor proposal, PR plan, and mapping diff for the NeMo RL documentation project. It captures the goals, scope, structure, migration mapping, review process, and deployment timeline.
+This document presents the refactor proposal, PR plan, and mapping diff for the NeMo RL documentation project. It describes the goals, scope, structure, migration mapping, review process, and deployment timeline.
 
 ---
 
@@ -14,8 +14,9 @@ This document presents the refactor proposal, PR plan, and mapping diff for the 
 
 - Goal: Transform NeMo RL docs from a flat structure into a user-centric, hierarchical system with better navigation and coverage.
 - Coverage increase: 25 → 82 manually authored files (+81 Auto‑Generated API docs).
+ - Coverage increase: 25 → ~80 curated docs (+81 per‑module auto‑generated API docs).
 - Organization: 8 major sections aligned to user journeys and personas.
-- Status: Migration complete; review and deployment in progress; optimization planned.
+- Status: Migration complete; review and deployment follow; optimization planned.
 
 ---
 
@@ -32,7 +33,7 @@ This document presents the refactor proposal, PR plan, and mapping diff for the 
 
 ## Information Architecture
 
-```
+```text
 docs/
 ├── about/                       # Project overview
 ├── get-started/                 # User onboarding
@@ -54,7 +55,7 @@ docs/
 | `guides/` | 18 | Practical how‑to guides |
 | `core-design/` | 15 | Architecture and systems design |
 | `references/` | 3 | CLI, configuration |
-| `api-docs/` | 6 + 81 Auto‑Generated | API reference (overview + per‑module) |
+| `api-docs/` | Overview pages + 81 per‑module | API reference (overview + per‑module) |
 | `_extensions/` | 8+ | Custom functionality |
 
 ---
@@ -63,9 +64,9 @@ docs/
 
 - Personas: MLEs, Researchers, DevOps, Cluster Administrators
 - Learning Paths:
-  - Beginner: Installation → Quick Start → Basic Configuration → Examples
-  - Intermediate: Advanced Configuration → Execution → Management → Use Cases
-  - Advanced: Troubleshooting → Performance → Integrations → Production
+  - Beginner: Installation → Quick Start → Model Selection → Examples
+  - Intermediate: Configuration Reference → Distributed Training → Guides → Use Cases
+  - Advanced: Troubleshooting → Performance → Core Design → References
 
 ## Content Standards And Enhancements
 
@@ -83,7 +84,7 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
 |------------------|--------------------|--------|------------------------|
 | `archive/docs/conf.py` | `docs/conf.py` | Moved | Sphinx configuration expanded; added custom extensions/templates |
 | `archive/docs/index.md` | `docs/index.md` | Moved | Landing page expanded with cross‑links and cards |
-| `archive/docs/versions1.json` | `docs/versions1.json` | Moved | Version config updated |
+| `archive/docs/versions1.json` | `docs/versions1.json` | Moved | Version configuration updated |
 | `archive/docs/project.json` | `docs/project.json` | Moved | Project metadata updated |
 | `archive/docs/docker.md` | `docs/get-started/docker.md` | Moved | Content enhanced and reorganized under Get Started |
 | `archive/docs/local-workstation.md` | `docs/get-started/local-workstation.md` | Moved | Clarified local run guidance |
@@ -108,17 +109,18 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
 | `archive/docs/design-docs/padding.md` | `docs/core-design/data-management/padding.md` | Moved | Content enhanced |
 | `archive/docs/design-docs/checkpointing.md` | `docs/core-design/data-management/checkpointing.md` | Moved | Content enhanced |
 | `archive/docs/design-docs/chat-datasets.md` | `docs/core-design/data-management/chat-datasets.md` | Moved | Content enhanced |
+| `archive/docs/helpers.py` | N/A | Retained (archived) | Not part of active docs |
 
 ### Preserved and Enhanced
 
-- Core config and landing content (`docs/conf.py`, `docs/index.md`) expanded and standardized
-- Training algorithm guides (SFT, DPO, GRPO, Eval) enhanced and consistently structured
-- Core Design content reorganized into design principles, data management, computational systems, and dev infrastructure
+- Core configuration and landing content (`docs/conf.py`, `docs/index.md`) expanded and standardized
+- Training algorithm guides (SFT, DPO, GRPO, Evaluation) enhanced and consistently structured
+- Core Design content reorganized into design principles, data management, computational systems, and development infrastructure
 
 ### Removed (Content Integrated)
 
 - `archive/docs/documentation.md` → replaced by the new hierarchical structure
-- `archive/docs/helpers.py`, `archive/docs/autodoc2_docstrings_parser.py` → removed (no longer needed)
+- `archive/docs/autodoc2_docstrings_parser.py` → retained under `archive/`; not part of active docs
 
 ### New Content Areas
 
@@ -131,19 +133,17 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
 
 ### Supporting Files
 
-- `docs/README.md` — main docs README
-- `docs/BUILD_INSTRUCTIONS.md` — build instructions
-- `docs/versions1.json` — version configuration
-- `docs/test_json_output.py` — JSON output test
-- `docs/project.json` — project configuration
-
-
+- `docs/README.md`—main docs README
+- `docs/BUILD_INSTRUCTIONS.md`—build instructions
+- `docs/versions1.json`—version configuration
+- `docs/test_json_output.py`—JSON output test
+- `docs/project.json`—project configuration
 
 ## Technical Infrastructure
 
 - Sphinx configuration enhanced with extensions and templates
 - Custom extensions: AI assistant, content gating, JSON output, enhanced search assets
-- Improved indexing and search relevance
+- Support for better indexing and search relevance via JSON output and enhanced search assets
 ---
 
 ## Deployment Strategy
@@ -206,7 +206,9 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
 
 ## Total Count Summary
 
-- 82 curated docs + 81 auto‑generated API docs
+- ~80 curated docs + 81 per‑module auto‑generated API docs
+
+Counts refer to curated, manually authored pages across non‑auto‑generated sections (including API overview pages), plus per‑module pages under `api-docs/nemo_rl/`.
 
 ---
 
@@ -239,5 +241,3 @@ High‑level mapping from `archive/docs` to `docs` with enhanced content and reo
 ## Conclusion
 
 The refactor delivers a modern, scalable, and user‑centered documentation system with comprehensive coverage, clear learning paths, robust technical infrastructure, and a staged deployment plan that minimizes risk while maximizing usability and maintainability.
-
-
