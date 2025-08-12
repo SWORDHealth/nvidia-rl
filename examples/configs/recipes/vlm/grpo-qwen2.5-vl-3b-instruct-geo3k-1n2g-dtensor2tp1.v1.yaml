@@ -5,7 +5,7 @@ defaults:
 
 grpo:
   num_prompts_per_step: 64
-  num_generations_per_prompt: 64
+  num_generations_per_prompt: 8
 
 checkpointing:
   enabled: true
@@ -16,7 +16,6 @@ checkpointing:
   save_period: 10
 
 policy:
-
   train_global_batch_size: 512
   logprob_batch_size: 2
 

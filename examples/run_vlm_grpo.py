@@ -179,16 +179,16 @@ def hf_data_processor(
 
     # add this for backward compatibility
     user_message['token_ids'] = message['input_ids'][0]
-    # gemma
-    if 'token_type_ids' in message:
-        user_message['token_type_ids'] = message['token_type_ids'][0]
-
     # add all keys and values to the user message, and the list of keys
     multimodal_keys = get_multimodal_keys_from_processor(processor)
     for key in multimodal_keys:
         if key in message:
             user_message[key] = PackedMultimodalDataItem(message[key], dim_to_pack=get_dim_to_pack_along(processor, key))
 
+    # specifically for gemma, we need to add token_type_ids to the user message as a sequence-type value
+    if 'token_type_ids' in message:
+        user_message['token_type_ids'] = message['token_type_ids'][0]
+    
     ### append to user message
     message_log.append(user_message)
 
