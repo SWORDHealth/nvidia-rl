@@ -1,0 +1,9 @@
+transformers==4.38.2
+accelerate>=0.29.0
+torch
+vllm
+pandas
+numpy
+matplotlib
+jupyterlab
+ipykernel
