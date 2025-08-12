@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # SBATCH --job-name=interactive-notebook
-# SBATCH --output=/log/notebook_job_%j.log
-# SBATCH --account=llmservice_modelalignment_sft
+# SBATCH --output=$LOG/notebook_job_%j.log
+# SBATCH --account=$ACCOUNT
 # SBATCH --nodes=1
 # SBATCH --ntasks-per-node=1
 # SBATCH --cpus-per-task=16
@@ -10,17 +10,16 @@
 # SBATCH --gpus=1
 # SBATCH --partition=interactive
 # SBATCH --container-image=/lustre/fsw/portfolios/llmservice/users/mfathi/containers/nemo_rl_base.sqsh
-# SBATCH --container-mounts=$LOG:/log
 # SBATCH --time=04:00:00
 
 VENV_DIR=".venv"
-KERNEL_NAME="slurm-job-kernel"
+KERNEL_NAME="slurm-job-kernel-mfathi"
 
 echo "===================================================================="
 echo "Starting SLURM job for interactive Jupyter Notebook"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Running on node: $(hostname)"
-echo "Log file: /log/notebook_job_${SLURM_JOB_ID}.log"
+echo "Log file: $LOG/notebooks/notebook_job_${SLURM_JOB_ID}.log"
 echo "Virtual Environment: $(pwd)/${VENV_DIR}"
 echo "===================================================================="
 
