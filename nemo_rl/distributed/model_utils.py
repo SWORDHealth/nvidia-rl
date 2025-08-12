@@ -181,11 +181,10 @@ class ChunkedDistributedLogprob(torch.autograd.Function):
             logits = vocab_parallel_logits[:, chunk_start:chunk_end, :]
             logits = logits.to(dtype=torch.float32)
 
-            log_softmax_output = _compute_distributed_log_softmax(
+            log_probs = _compute_distributed_log_softmax(
                 logits,
                 group=tp_group,
             )
-            log_probs = log_softmax_output.clone()
 
             log_probs = torch.gather(
                 log_probs, -1, masked_target[:, chunk_start:chunk_end].unsqueeze(-1)
