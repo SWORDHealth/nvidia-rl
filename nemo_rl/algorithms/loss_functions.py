@@ -440,15 +440,15 @@ class DiffusionNLLLoss(LossFunction):
         else:
             ## single scalar loss
             ## scale by the total number of tokens in the batch
-            #token_logprobs = token_logprobs / p_mask
-            #token_logprobs = token_logprobs / answer_lengths
-            #loss = -masked_mean(
-            #    token_logprobs,
-            #    mask,
-            #    global_normalization_factor=global_valid_seqs,
-            #)
-            token_loss = F.cross_entropy(next_token_logits[mask], next_tokens[mask], reduction='none') / p_mask[mask]
-            loss = torch.sum(token_loss / answer_lengths[mask]) / global_valid_seqs
+            token_logprobs = token_logprobs / p_mask
+            token_logprobs = token_logprobs / answer_lengths
+            loss = -masked_mean(
+                token_logprobs,
+                mask,
+                global_normalization_factor=global_valid_seqs,
+            )
+            #token_loss = F.cross_entropy(next_token_logits[mask], next_tokens[mask], reduction='none') / p_mask[mask]
+            #loss = torch.sum(token_loss / answer_lengths[mask]) / global_valid_seqs
 
         return loss, {
             "loss": loss.item() if loss.ndim == 0 else loss,
