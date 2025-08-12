@@ -1062,11 +1062,11 @@ class DTensorPolicyWorker:
                                 chunk_end = min(
                                     logits_seq_len, (chunk_idx + 1) * logprob_chunk_size
                                 )
-                                logits = logits[:, chunk_start:chunk_end, :].to(
+                                chunk_logits = logits[:, chunk_start:chunk_end, :].to(
                                     torch.float32
                                 )
                                 log_probs = torch.nn.functional.log_softmax(
-                                    logits, dim=-1
+                                    chunk_logits, dim=-1
                                 )
                                 chunked_log_probs.append(log_probs)
                             log_probs = torch.cat(chunked_log_probs, dim=1)
