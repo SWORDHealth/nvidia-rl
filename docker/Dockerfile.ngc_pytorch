@@ -38,7 +38,7 @@ RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 ENV RAY_USAGE_STATS_ENABLED=0
 ENV NEMO_RL_VENV_DIR=/opt/ray_venvs
 
-# Build vLLM from source if using PyTorch base image
+# Build vLLM from source to use with the NVIDIA PyTorch base image
 FROM base AS build_vllm
 
 ARG MAX_JOBS=32
@@ -47,39 +47,6 @@ COPY --from=nemo-rl uv.lock /tmp/uv.lock
 
 RUN <<"EOF" bash -exu
 echo "Building vLLM from source for PyTorch base image"
-
-# Modify torch package metadata to remove NVIDIA version suffix
-# Look for torch in the system Python packages directory
-TORCH_DIST_INFO_DIR=$(find /usr/local/lib/python3.12/dist-packages -name "torch-*.nv*.dist-info" -type d 2>/dev/null | head -1)
-
-if [ -n "$TORCH_DIST_INFO_DIR" ]; then
-    echo "Found torch dist-info directory: $TORCH_DIST_INFO_DIR"
-
-    # Find the METADATA file within the dist-info directory
-    METADATA_FILE="$TORCH_DIST_INFO_DIR/METADATA"
-
-    if [ -f "$METADATA_FILE" ]; then
-        echo "Found torch metadata file: $METADATA_FILE"
-        # Remove NVIDIA version suffix from Version field (e.g., .nv25.6, .nv25.7, etc.)
-        sed -i 's/^Version: \(.*\)\.nv[0-9]\+\.\([0-9]\+\)/Version: \1/' "$METADATA_FILE"
-        echo "Modified torch package metadata to remove NVIDIA version suffix"
-
-        # Also update the directory name to remove the .nv suffix
-        NEW_DIR_NAME=$(echo "$TORCH_DIST_INFO_DIR" | sed 's/\.nv[0-9]\+\.\([0-9]\+\)//')
-        if [ "$TORCH_DIST_INFO_DIR" != "$NEW_DIR_NAME" ]; then
-            mv "$TORCH_DIST_INFO_DIR" "$NEW_DIR_NAME"
-            echo "Renamed directory from $(basename "$TORCH_DIST_INFO_DIR") to $(basename "$NEW_DIR_NAME")"
-        fi
-    else
-        echo "Error: Could not find METADATA file in $TORCH_DIST_INFO_DIR"
-        exit 1
-    fi
-else
-    echo "Error: Could not locate torch dist-info directory"
-    exit 1
-fi
-
-# Extract vLLM version from uv.lock and build that version
 VLLM_VERSION=$(grep -A 1 'name = "vllm"' /tmp/uv.lock | grep 'version =' | sed 's/version = "\(.*\)"/\1/') && \
 echo "Building vLLM version: $VLLM_VERSION"
 git clone https://github.com/vllm-project/vllm.git
@@ -87,7 +54,7 @@ cd vllm
 git checkout v$VLLM_VERSION
 python use_existing_torch.py
 pip install -r requirements/build.txt
-pip wheel --no-build-isolation -v .
+pip wheel --no-deps --no-build-isolation -v .
 EOF
 
 FROM base AS hermetic
@@ -118,9 +85,23 @@ RUN --mount=type=bind,from=build_vllm,source=/opt/,target=/tmp/build_vllm/ <<"EO
 # uv sync has a more reliable resolver than simple uv pip install which can fail
 # The venv is symlinked to avoid bloating the layer size
 pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl
-pip install --no-cache-dir -r docker/ngc-pytorch-overrides.txt
+
+# The torch version includes a commit hash and NVIDIA version suffix.
+# This causes vllm dependencies to fail to resolve so we remove
+# TORCH_VERSION=$(python -c "import torch; print(torch.__version__)")
+# echo "Torch version: $TORCH_VERSION"
+
+# CLEAN_TORCH_VERSION=$(echo "$TORCH_VERSION" | cut -d"+" -f1 | sed "s/[ab][0-9]*//" | cut -d"." -f1-3)
+# echo "Clean torch version: $CLEAN_TORCH_VERSION"
+
+# sed -i "s/^torch==.*/torch==$CLEAN_TORCH_VERSION/" /etc/pip/constraint.txt
+
+# TORCH_DIST_INFO_DIR=$(find /usr/local/lib/python3.12/dist-packages -name "torch-*.dist-info" -type d 2>/dev/null | head -1)
+# sed -i "s/^Version: .*/Version: $CLEAN_TORCH_VERSION/" "$TORCH_DIST_INFO_DIR/METADATA"
+
+# pip install --no-cache-dir -r docker/ngc-pytorch-overrides.txt
 uv venv --system-site-packages ${UV_PROJECT_ENVIRONMENT}
-uv sync --link-mode symlink --locked --inexact --extra vllm --extra mcore --extra automodel --all-groups --no-install-project $UV_NO_INSTALL_PACKAGES
+uv sync --link-mode symlink --locked --extra vllm --extra mcore --extra automodel --all-groups --no-install-project $UV_NO_INSTALL_PACKAGES
 EOF
 
 ENV NEMO_RL_VENV_DIR=/opt/ray_venvs
