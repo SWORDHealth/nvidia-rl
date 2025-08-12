@@ -82,24 +82,13 @@ COPY --from=nemo-rl --link 3rdparty/ ./3rdparty/
 
 
 RUN --mount=type=bind,from=build_vllm,source=/opt/,target=/tmp/build_vllm/ <<"EOF" bash -exu
-# uv sync has a more reliable resolver than simple uv pip install which can fail
-# The venv is symlinked to avoid bloating the layer size
 pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl
 
-# The torch version includes a commit hash and NVIDIA version suffix.
-# This causes vllm dependencies to fail to resolve so we remove
-# TORCH_VERSION=$(python -c "import torch; print(torch.__version__)")
-# echo "Torch version: $TORCH_VERSION"
+# Ensure packages like numpy are not upgraded to the latest version
+pip install --no-cache-dir -r docker/ngc-pytorch-overrides.txt
 
-# CLEAN_TORCH_VERSION=$(echo "$TORCH_VERSION" | cut -d"+" -f1 | sed "s/[ab][0-9]*//" | cut -d"." -f1-3)
-# echo "Clean torch version: $CLEAN_TORCH_VERSION"
-
-# sed -i "s/^torch==.*/torch==$CLEAN_TORCH_VERSION/" /etc/pip/constraint.txt
-
-# TORCH_DIST_INFO_DIR=$(find /usr/local/lib/python3.12/dist-packages -name "torch-*.dist-info" -type d 2>/dev/null | head -1)
-# sed -i "s/^Version: .*/Version: $CLEAN_TORCH_VERSION/" "$TORCH_DIST_INFO_DIR/METADATA"
-
-# pip install --no-cache-dir -r docker/ngc-pytorch-overrides.txt
+# uv sync has a more reliable resolver than simple uv pip install which can fail
+# The venv is symlinked to avoid bloating the layer size
 uv venv --system-site-packages ${UV_PROJECT_ENVIRONMENT}
 uv sync --link-mode symlink --locked --extra vllm --extra mcore --extra automodel --all-groups --no-install-project $UV_NO_INSTALL_PACKAGES
 EOF
