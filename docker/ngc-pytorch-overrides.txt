@@ -1,2 +1,0 @@
-numpy==1.26.4
-triton; sys_platform == "never"
