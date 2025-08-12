@@ -407,6 +407,7 @@ def refit_policy_generation(
     policy_generation: GenerationInterface,
     colocated_inference: bool,
     _refit_buffer_size_gb: Optional[int] = None,
+    timer: Optional[Timer] = None,
 ) -> None:
     """Refit the policy generation interface with the latest policy weights.
 
@@ -423,43 +424,48 @@ def refit_policy_generation(
 
     # update weights
     update_success = False
-    if colocated_inference:
-        # get model param keys, which is grouped by size
-        grouped_param_keys = policy.prepare_weights_for_ipc(
-            _refit_buffer_size_gb=_refit_buffer_size_gb
-        )
-        total_num_keys = sum(len(k) for k in grouped_param_keys)
-        print(
-            f"[Refit] Split {total_num_keys} keys into {len(grouped_param_keys)} groups"
-        )
-        # do update
-        for keys in grouped_param_keys:
-            ipc_handles = policy.get_weights_ipc_handles(keys)
-            update_success = policy_generation.update_weights(ipc_handles)
-            if not update_success:
-                break
-    else:
-        # prepare info for update weights
-        state_dict_info = policy.prepare_info_for_collective()
-        # update weights through nccl
-        futures_train = policy.broadcast_weights_for_collective()
-        futures_inference = policy_generation.update_weights_from_collective(
-            state_dict_info
-        )
-        # wait for all futures to complete
-        ray.get(futures_train)
-        results = ray.get(futures_inference)
-        update_success = all(result for result in results if result is not None)
+    from contextlib import nullcontext
+    timer = timer if timer is not None else nullcontext()
+    with timer.time("refit_policy_generation/refit_weights"):
+        if colocated_inference:
+            # get model param keys, which is grouped by size
+            grouped_param_keys = policy.prepare_weights_for_ipc(
+                _refit_buffer_size_gb=_refit_buffer_size_gb
+            )
+            total_num_keys = sum(len(k) for k in grouped_param_keys)
+            print(
+                f"[Refit] Split {total_num_keys} keys into {len(grouped_param_keys)} groups"
+            )
+            # do update
+            for keys in grouped_param_keys:
+                with timer.time("refit_policy_generation/refit_weights/get_weights_ipc_handles/get_weights_ipc_handles"):
+                    ipc_handles = policy.get_weights_ipc_handles(keys)
+                with timer.time("refit_policy_generation/refit_weights/update_weights/update_weights"):
+                    update_success = policy_generation.update_weights(ipc_handles)
+                if not update_success:
+                    break
+        else:
+            # prepare info for update weights
+            state_dict_info = policy.prepare_info_for_collective()
+            # update weights through nccl
+            futures_train = policy.broadcast_weights_for_collective()
+            futures_inference = policy_generation.update_weights_from_collective(
+                state_dict_info
+            )
+            # wait for all futures to complete
+            ray.get(futures_train)
+            results = ray.get(futures_inference)
+            update_success = all(result for result in results if result is not None)
 
-    # check if update is successful
-    if not update_success:
-        error_tag = "cuda-ipc" if colocated_inference else "nccl"
-        error_message = (
-            "❌ Error: Updating weights for the generation policy failed during refit.\n"
-            f"This often indicates an issue with {error_tag} or "
-            "a problem within the generation backend (e.g., vLLM worker).\n"
-        )
-        raise RuntimeError(error_message)
+        # check if update is successful
+        if not update_success:
+            error_tag = "cuda-ipc" if colocated_inference else "nccl"
+            error_message = (
+                "❌ Error: Updating weights for the generation policy failed during refit.\n"
+                f"This often indicates an issue with {error_tag} or "
+                "a problem within the generation backend (e.g., vLLM worker).\n"
+            )
+            raise RuntimeError(error_message)
 
     if colocated_inference:
         policy.offload_after_refit()
@@ -553,7 +559,7 @@ def grpo_train(
             with timer.time("prepare_for_generation"):
                 if NEED_REFIT and POLICY_GENERATION_STALE:
                     refit_policy_generation(
-                        policy, policy_generation, colocated_inference
+                        policy, policy_generation, colocated_inference, timer=timer
                     )
                     POLICY_GENERATION_STALE = False
                 else:
@@ -686,7 +692,7 @@ def grpo_train(
             if is_last_step or (val_period > 0 and (step + 1) % val_period == 0):
                 if NEED_REFIT and POLICY_GENERATION_STALE:
                     refit_policy_generation(
-                        policy, policy_generation, colocated_inference
+                        policy, policy_generation, colocated_inference, timer=timer
                     )
                     POLICY_GENERATION_STALE = False
                 else:

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import time
 from typing import Any
 
 import torch
@@ -56,6 +57,11 @@ class VllmInternalWorkerExtension:
             bool: True if weights were successfully updated.
         """
         try:
+            if not hasattr(self, "count"):
+                self.count = 0
+            if not hasattr(self, "duration"):
+                self.duration = 0
+
             # Get handles for this device
             device_uuid = self.report_device_id()
             handles = ipc_handles[device_uuid]
@@ -95,7 +101,25 @@ class VllmInternalWorkerExtension:
                     weights.append((name, tensor))
 
             # Load weights into the model
+            start_time = time.time()
             self.model_runner.model.load_weights(weights=weights)
+            self.duration += time.time() - start_time
+            self.count += len(weights)
+            if not hasattr(self, "_total_params"):
+                self._total_params = len(
+                    list(self.model_runner.model.named_parameters())
+                )
+            print(
+                f"Duration: {self.duration}, count/total_params: {self.count}/{self._total_params}",
+                flush=True,
+            )
+            if self.count > 0 and self.count % self._total_params == 0:
+                print(
+                    f"[Duration]: {self.duration}, count/total_params: {self.count}/{self._total_params}",
+                    flush=True,
+                )
+                self.count = 0
+                self.duration = 0
             return True
         except Exception as e:
             print(
