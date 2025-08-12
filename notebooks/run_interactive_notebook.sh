@@ -1,50 +1,69 @@
 #!/bin/bash
 
-# SBATCH --job-name=interactive-notebook
-# SBATCH --output=$LOG/notebooks/notebook_job_%j.log
-# SBATCH --account=$ACCOUNT
-# SBATCH --nodes=1
-# SBATCH --ntasks-per-node=1
-# SBATCH --cpus-per-task=16
-# SBATCH --mem=64G
-# SBATCH --gpus=1
-# SBATCH --partition=interactive
-# SBATCH --container-image=/lustre/fsw/portfolios/llmservice/users/mfathi/containers/nemo_rl_base.sqsh
-# SBATCH --time=00:30:00
+# ===================================================================================
+# Interactive Jupyter Notebook Launcher for SLURM
+#
+# This script uses srun to launch an interactive Jupyter Lab session inside a
+# container. It handles virtual environment creation, dependency installation,
+# and provides clear connection instructions.
+#
+# Usage:
+#   1. Ensure $ACCOUNT and $LOG environment variables are set.
+#   2. Run from your terminal: ./notebooks/run_interactive_notebook.sh
+# ===================================================================================
 
+# --- Job Configuration ---
+JOB_NAME="interactive-notebook"
+TIME="01:00:00"
+GPUS_PER_NODE=1
+CPUS_PER_TASK=16
+MEM="64G"
+PARTITION="interactive"
+CONTAINER_IMAGE="/lustre/fsw/portfolios/llmservice/users/mfathi/containers/nemo_rl_base.sqsh"
+KERNEL_NAME="slurm-job-kernel-mfathi"
+VENV_DIR=".venv"
+
+# --- Validate Environment Variables ---
+if [ -z "$ACCOUNT" ] || [ -z "$LOG" ]; then
+    echo "Error: Please ensure the \$ACCOUNT and \$LOG environment variables are set."
+    exit 1
+fi
+LOG_DIR="$LOG/notebooks"
+mkdir -p "$LOG_DIR"
+
+
+# --- srun Command Block ---
+# This block defines the commands that will be executed on the compute node
+# inside the container after the resources are allocated.
+COMMAND_BLOCK=$(cat <<'EOF'
+# Ensure we are in the correct starting directory
+cd $SLURM_SUBMIT_DIR
+
+# --- Environment Setup on the Compute Node ---
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
 
 echo "===================================================================="
-echo "Starting SLURM job for interactive Jupyter Notebook"
-echo "Job ID: $SLURM_JOB_ID"
-echo "Running on node: $(hostname)"
-echo "Log file: $LOG/notebooks/notebook_job_${SLURM_JOB_ID}.log"
-echo "Virtual Environment: $(pwd)/${VENV_DIR}"
+echo "Job running on compute node: $(hostname)"
+echo "Virtual Environment will be set up in: $(pwd)/${VENV_DIR}"
 echo "===================================================================="
 
-# Step 1: Set up Python virtual environment with uv
+# Step 1: Set up Python virtual environment
 echo
-echo "[1/4] Setting up Python virtual environment using uv..."
-if [ -d "$VENV_DIR" ]; then
-    echo "Existing virtual environment found. Reusing."
-else
+echo "[1/4] Setting up Python virtual environment..."
+if [ ! -d "$VENV_DIR" ]; then
     echo "Creating new virtual environment..."
     python3 -m venv $VENV_DIR
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to create virtual environment."
-        exit 1
-    fi
 fi
 source $VENV_DIR/bin/activate
 echo "Virtual environment activated."
 echo
 
 # Step 2: Install dependencies from requirements.txt using uv
-echo "[2/4] Installing Python dependencies using uv..."
+echo "[2/4] Installing Python dependencies with uv..."
 uv pip install -r requirements.txt
 if [ $? -ne 0 ]; then
-    echo "Error: Failed to install dependencies. Check requirements.txt and uv setup."
+    echo "Error: Failed to install dependencies. Exiting."
     exit 1
 fi
 echo "Dependencies installed successfully."
@@ -52,61 +71,56 @@ echo
 
 # Step 3: Register the virtual environment as a Jupyter kernel
 echo "[3/4] Registering virtual environment as a Jupyter kernel..."
-python -m ipykernel install --user --name="$KERNEL_NAME" --display-name="SLURM Job Kernel"
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to register Jupyter kernel."
-    exit 1
-fi
+python -m ipykernel install --user --name="$KERNEL_NAME" --display-name="SLURM Job Kernel ($USER)"
 echo "Jupyter kernel '$KERNEL_NAME' registered."
 echo
 
-# Step 4: Start Jupyter Lab server on a random port
+# Step 4: Prepare and start Jupyter Lab
 echo "[4/4] Starting Jupyter Lab server..."
-# Find a random available port
 PORT=$(shuf -i 8000-9999 -n 1)
-IP_ADDRESS=$(hostname -I | awk '{print $1}')
+TOKEN=$(openssl rand -hex 16)
+COMPUTE_NODE=$(hostname)
 
-# Start jupyter lab in the background
-jupyter lab --no-browser --port=${PORT} --ip=0.0.0.0 &
-
-# Wait a few seconds for the server to start up
-sleep 15
-
-echo "Jupyter Lab server is starting in the background."
-echo
-
-# Step 5: Display connection instructions
 echo
 echo "==================== CONNECTION INSTRUCTIONS ===================="
 echo
-echo "----------[ LOCAL TERMINAL ]----------"
-echo "1. Open a NEW terminal on your LOCAL machine and run this command"
-echo "   to create an SSH tunnel. This command will seem to hang, which is normal."
+echo "----------[ 1. LOCAL TERMINAL: Create SSH Tunnel ]----------"
+echo "Run this command on your LOCAL machine. It will seem to hang, which is normal."
 echo
-echo "   ssh -N -L ${PORT}:$(hostname):${PORT} ${USER}@your_cluster_login_node"
+echo "   ssh -N -L ${PORT}:${COMPUTE_NODE}:${PORT} ${USER}@your_cluster_login_node"
 echo
-echo "   - Replace 'your_cluster_login_node' with your cluster's SSH address."
-echo "   - The job is running on compute node: $(hostname)"
-echo "----------------------------------------"
+echo "   (Replace 'your_cluster_login_node' with your cluster's SSH address)"
+echo "------------------------------------------------------------"
 echo
-echo "----------[ VS CODE ]----------"
-echo "2. In VS Code, connect to the Jupyter server:"
-echo "   a. Open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P)."
-echo "   b. Type and select 'Jupyter: Specify Jupyter server for connections'."
-echo "   c. Select 'Existing'."
-echo "   d. Paste one of the URLs below (it should start with http://127.0.0.1...)"
+echo "----------[ 2. VS CODE / BROWSER: Connect to Server ]----------"
+echo "Use this URL to connect in your browser or in VS Code:"
+echo "   (Ctrl+Shift+P -> 'Jupyter: Specify Jupyter server...' -> Paste URL)"
 echo
-echo "Available Jupyter Servers (copy a URL with the token):"
-jupyter server list
+echo "   http://localhost:${PORT}/lab?token=${TOKEN}"
 echo
-echo "3. Once connected, open your .ipynb file and select the kernel:"
-echo "   a. Click the kernel name in the top-right corner of the notebook."
-echo "   b. Choose 'SLURM Job Kernel' from the list."
-echo "----------------------------------------"
+echo "Once connected, select the kernel: 'SLURM Job Kernel ($USER)'"
+echo "================================================================"
 echo
-echo "Job is now running. The allocation is reserved for the time you requested."
-echo "To stop the job, run: scancel $SLURM_JOB_ID"
 
-# Wait for the Jupyter Lab process to end.
-# This keeps the SLURM job alive.
-wait
+# Start Jupyter Lab, allowing it to run in the foreground
+jupyter lab --no-browser --port=${PORT} --ip=0.0.0.0 --NotebookApp.token=${TOKEN} --allow-root
+EOF
+)
+
+
+# --- Launch the Interactive Job ---
+echo "Requesting interactive job allocation from SLURM..."
+
+srun --job-name=${JOB_NAME} \
+     --time=${TIME} \
+     --gpus-per-node=${GPUS_PER_NODE} \
+     --cpus-per-task=${CPUS_PER_TASK} \
+     --mem=${MEM} \
+     --partition=${PARTITION} \
+     --account=${ACCOUNT} \
+     --container-image=${CONTAINER_IMAGE} \
+     --output="${LOG_DIR}/notebook_job_%j.log" \
+     --pty \
+     bash -c "$COMMAND_BLOCK"
+
+echo "Interactive job finished."
