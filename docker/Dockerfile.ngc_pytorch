@@ -82,10 +82,8 @@ COPY --from=nemo-rl --link 3rdparty/ ./3rdparty/
 
 
 RUN --mount=type=bind,from=build_vllm,source=/opt/,target=/tmp/build_vllm/ <<"EOF" bash -exu
-pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl
-
-# Ensure packages like numpy are not upgraded to the latest version
-pip install --no-cache-dir -r docker/ngc-pytorch-overrides.txt
+# Install vllm and ensure certain packages are not upgraded or installed
+pip install --no-cache-dir /tmp/build_vllm/vllm/vllm*.whl -r docker/ngc-pytorch-overrides.txt
 
 # uv sync has a more reliable resolver than simple uv pip install which can fail
 # The venv is symlinked to avoid bloating the layer size
@@ -109,6 +107,7 @@ ENV NEMO_RL_COMMIT=${NEMO_RL_COMMIT:-<unknown>}
 ENV NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID:-<unknown>}
 ENV NVIDIA_BUILD_REF=${NVIDIA_BUILD_REF:-<unknown>}
 ENV NEMO_RL_PY_EXECUTABLES_SYSTEM=1
+ENV VLLM_USE_STANDALONE_COMPILE=0
 LABEL com.nvidia.build.id="${NVIDIA_BUILD_ID}"
 LABEL com.nvidia.build.ref="${NVIDIA_BUILD_REF}"
 
