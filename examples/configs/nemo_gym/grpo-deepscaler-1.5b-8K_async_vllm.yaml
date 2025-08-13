@@ -92,7 +92,7 @@ policy:
   generation:
     backend: "vllm"
     max_new_tokens: ${policy.max_total_sequence_length}
-    temperature: 1.0
+    temperature: 1.0  # Right now this has to be 1.0. GRPO doesn't work accurately with this != 1. Since we don't care which temperature we're running this config at, we just leave it at T=1
     top_p: 1.0
     top_k: null
     stop_token_ids: null
@@ -102,9 +102,9 @@ policy:
       precision: ${policy.precision}
       tensor_parallel_size: ${policy.dtensor_cfg.tensor_parallel_size}
       pipeline_parallel_size: 1
-      gpu_memory_utilization: 0.9
+      gpu_memory_utilization: 0.9  # Some how this value needs to be lower for async vllm engine vs sync. Sync works with 0.95 but async ooms with that number.
       max_model_len: ${policy.max_total_sequence_length}
-      enforce_eager: False
+      enforce_eager: False  # There is a known issue with enforce_eager: False here. However, we don't care about accuracy atm and just want to test faster.
       # For most cases, use "dummy" to load the initial weights, since they will be overwritten during refit
       # For Gemma models, we need to use "auto" due to a vllm bug
       load_format: dummy
