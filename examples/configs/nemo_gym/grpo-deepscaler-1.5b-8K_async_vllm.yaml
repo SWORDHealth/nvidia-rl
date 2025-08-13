@@ -102,7 +102,7 @@ policy:
       precision: ${policy.precision}
       tensor_parallel_size: ${policy.dtensor_cfg.tensor_parallel_size}
       pipeline_parallel_size: 1
-      gpu_memory_utilization: 0.6
+      gpu_memory_utilization: 0.9
       max_model_len: ${policy.max_total_sequence_length}
       enforce_eager: False
       # For most cases, use "dummy" to load the initial weights, since they will be overwritten during refit
