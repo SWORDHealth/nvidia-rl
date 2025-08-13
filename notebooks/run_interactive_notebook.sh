@@ -46,21 +46,20 @@ echo "Job running on compute node: $(hostname)"
 echo "Virtual Environment will be set up in: $(pwd)/${VENV_DIR}"
 echo "===================================================================="
 
-# Step 1: Set up Python virtual environment
+# Step 1: Set up Python virtual environment using uv
 echo
-echo "[1/4] Setting up Python virtual environment..."
+echo "[1/4] Setting up Python virtual environment with uv..."
 if [ ! -d "$VENV_DIR" ]; then
-    echo "Creating new virtual environment..."
-    python3 -m venv $VENV_DIR
+    echo "Creating new virtual environment with uv..."
+    uv venv $VENV_DIR
 fi
 source $VENV_DIR/bin/activate
 echo "Virtual environment activated."
 echo
 
-# Step 2: Install dependencies from requirements.txt using pip
-echo "[2/4] Installing Python dependencies with pip..."
-pip install --upgrade pip
-pip install -r requirements.txt
+# Step 2: Install dependencies from requirements.txt using uv
+echo "[2/4] Installing Python dependencies with uv..."
+uv pip install -r notebooks/requirements.txt
 if [ $? -ne 0 ]; then
     echo "Error: Failed to install dependencies. Exiting."
     exit 1
