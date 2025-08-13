@@ -42,7 +42,6 @@ policy:
   logprob_batch_size: 1
   logprob_chunk_size: 1024
   max_total_sequence_length: 8192
-  activation_checkpointing_enabled: True
   precision: "bfloat16"
 
   dtensor_cfg:
