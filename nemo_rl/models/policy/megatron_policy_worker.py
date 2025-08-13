@@ -131,6 +131,58 @@ from nemo_rl.utils.nsys import wrap_with_nvtx_name
 TokenizerType = TypeVar("TokenizerType", bound=PreTrainedTokenizerBase)
 
 
+def broadcast_object_across_pp_ranks(obj):
+    """Broadcast an object across pipeline parallel ranks.
+    
+    This utility function handles broadcasting an object from the rank that owns it
+    to all other pipeline parallel ranks. If only one rank has the object (non-None),
+    it will be broadcast to all other ranks.
+    
+    Args:
+        obj: The object to broadcast. Can be None on ranks that don't own it.
+        
+    Returns:
+        The object on all ranks (either the original or the broadcast copy).
+        
+    Raises:
+        ValueError: If the object doesn't exist on any pipeline parallel rank.
+    """
+    pp_size = get_pipeline_model_parallel_world_size()
+    pp_group = get_pipeline_model_parallel_group()
+    
+    if pp_size == 1:
+        return obj
+
+    # ------------------------------------------------------------------
+    # 1. Gather presence flags from all PP ranks to find the source rank
+    # ------------------------------------------------------------------
+    has_obj = obj is not None
+    obj_flags = [None] * pp_size
+    torch.distributed.all_gather_object(obj_flags, has_obj, group=pp_group)
+
+    # ------------------------------------------------------------------
+    # 2. Identify the owning rank (the only rank with True flag)
+    # ------------------------------------------------------------------
+    src_rank = None  # Rank *inside* the PP group
+    for rank, flag in enumerate(obj_flags):
+        if flag:
+            src_rank = rank
+
+    if src_rank is None:
+        raise ValueError("Object must exist on at least one PP rank")
+
+    # ------------------------------------------------------------------
+    # 3. Broadcast the object from the source rank to all ranks
+    # ------------------------------------------------------------------
+    # Use broadcast_object_list which is more robust than all_gather_object
+    obj_list = [obj]
+    pp_ranks = torch.distributed.get_process_group_ranks(pp_group)
+    global_src = pp_ranks[src_rank]
+    torch.distributed.broadcast_object_list(obj_list, src=global_src, group=pp_group)
+
+    return obj_list[0]
+
+
 def setup_megatron_model(
     policy_cfg: PolicyConfig,
     cfg: ConfigContainer,
@@ -1462,17 +1514,23 @@ class MegatronPolicyWorker:
         param_info = []
 
         def calculate_size_in_bytes(param, tp_size, ep_size):
-            # Calculate size for this parameter
-            prec_to_bytes = {
-                torch.bfloat16: 2,
-                torch.float16: 2,
-                torch.float32: 4,
-            }
-            scale = prec_to_bytes[self.dtype] / prec_to_bytes[param.dtype]
-            size_in_bytes = (
-                param.element_size() * param.numel() * tp_size * ep_size * scale
-            )
-            return size_in_bytes
+            if param is None:
+                # need to broadcast for other pp ranks
+                size_in_bytes = None
+            else:
+                # Calculate size for this parameter
+                prec_to_bytes = {
+                    torch.bfloat16: 2,
+                    torch.float16: 2,
+                    torch.float32: 4,
+                }
+                scale = prec_to_bytes[self.dtype] / prec_to_bytes[param.dtype]
+                size_in_bytes = (
+                    param.element_size() * param.numel() * tp_size * ep_size * scale
+                )
+            
+            # Broadcast size_in_bytes across pipeline parallel ranks
+            return broadcast_object_across_pp_ranks(size_in_bytes)
 
         for task in self.refit_conversion_tasks:
             param_info.append(
