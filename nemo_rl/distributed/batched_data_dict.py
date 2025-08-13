@@ -132,6 +132,8 @@ class BatchedDataDict(UserDict, Generic[DictT]):
                 tensor_or_list: list[Any] | torch.Tensor = [
                     item for sublist in list_of_tensors for item in sublist
                 ]
+            elif isinstance(list_of_tensors[0], PackedGenericDataBatch):
+                tensor_or_list = PackedGenericDataBatch.concat_packed_batches(list_of_tensors)
             elif all(x.ndim == 1 for x in list_of_tensors):
                 tensor_or_list = torch.cat(list_of_tensors)
             elif isinstance(list_of_tensors[0], torch.Tensor):

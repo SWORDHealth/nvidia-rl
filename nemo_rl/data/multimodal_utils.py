@@ -34,17 +34,30 @@ class PackedGenericDataBatch:
     ItemClass = PackedGenericDataItem
     """Wrapper around a torch tensor that contains multimodal data"""
 
-    def __init__(self, tensors: Union[list[torch.Tensor], list[PackedGenericDataItem]], dim_to_pack: int) -> None:
+    def __init__(self, tensors: Union[list[torch.Tensor], list[PackedGenericDataItem]], dim_to_pack: Optional[int] = None) -> None:
         tensorlist: list[torch.Tensor] = []
+        item_dim_to_pack = []
         for item in tensors:
             if isinstance(item, torch.Tensor):
                 tensorlist.append(item)
             elif isinstance(item, PackedGenericDataItem):
+                item_dim_to_pack.append(item.dim_to_pack)
                 tensorlist.append(item.tensor)
             else:
                 raise ValueError("tensors must be a list of torch.Tensors or a list of PackedGenericDataItem objects")
         self.tensors: list[torch.Tensor] = tensorlist
-        self.dim_to_pack = dim_to_pack
+
+        if len(set(item_dim_to_pack)) > 1:
+            raise ValueError("All items in the batch must have the same dim_to_pack")
+        if len(set(item_dim_to_pack)) == 1:
+            assert dim_to_pack is None or item_dim_to_pack[0] == dim_to_pack, "dim_to_pack must not provided, or must be equal as each item in the batch"
+            dim_to_pack = item_dim_to_pack[0]
+        else:
+            # empty string, make sure dim_to_pack is provided
+            assert dim_to_pack is not None, "dim_to_pack must be provided for empty batch"
+            
+        self.dim_to_pack = dim_to_pack 
+        
     
     def as_tensor(self, device: Optional[torch.device] = None) -> torch.Tensor:
         if device is not None:
