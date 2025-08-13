@@ -43,6 +43,10 @@ export PATH="/root/.local/bin:$PATH" # Ensure uv is in the PATH
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
 
+# Clean up previous environment to ensure a fresh start
+echo "--> Removing old virtual environment..."
+rm -rf "$VENV_DIR"
+
 echo "===================================================================="
 echo "Job running on compute node: $(hostname)"
 echo "Virtual Environment will be set up in: $(pwd)/${VENV_DIR}"
