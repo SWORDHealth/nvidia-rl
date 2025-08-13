@@ -415,6 +415,8 @@ class DTensorPolicyWorker:
                         else:
                             logits = outputs.logits
 
+                        del outputs
+
                         # Divide logits by temperature
                         if (
                             "generation" in self.cfg
@@ -425,6 +427,8 @@ class DTensorPolicyWorker:
                         loss, loss_metrics = loss_fn(
                             logits, mb, global_valid_seqs, global_valid_toks
                         )
+
+                        del logits
 
                         num_valid_samples = loss_metrics["num_valid_samples"]
                         if num_valid_samples > 0:
@@ -653,9 +657,12 @@ class DTensorPolicyWorker:
                         position_ids=position_ids,
                         use_cache=False,
                     )
-                token_logprobs = compute_token_logprobs(
-                    outputs.logits.to(torch.float32), input_ids
-                )
+
+                logits = outputs.logits.to(torch.float32)
+                token_logprobs = compute_token_logprobs(logits, input_ids)
+
+                del outputs, logits
+
                 token_logprobs = torch.cat(
                     [torch.zeros_like(token_logprobs[:, :1]), token_logprobs], dim=1
                 )
