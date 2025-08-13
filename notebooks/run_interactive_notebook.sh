@@ -38,6 +38,8 @@ mkdir -p "$LOG_DIR"
 # inside the container after the resources are allocated.
 COMMAND_BLOCK=$(cat <<'EOF'
 # --- Environment Setup on the Compute Node ---
+export PATH="/root/.local/bin:$PATH" # Ensure uv is in the PATH
+
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
 
