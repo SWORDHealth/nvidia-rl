@@ -41,6 +41,7 @@ COMMAND_BLOCK=$(cat <<'EOF'
 unset UV_CACHE_DIR
 
 # --- Environment Setup on the Compute Node ---
+export PATH="/root/.local/bin:$PATH"
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
 
@@ -58,7 +59,7 @@ echo
 echo "[1/4] Setting up Python virtual environment with uv..."
 if [ ! -d "$VENV_DIR" ]; then
     echo "Creating new virtual environment with uv..."
-    /root/.local/bin/uv venv $VENV_DIR
+    uv venv $VENV_DIR
 fi
 source $VENV_DIR/bin/activate
 echo "Virtual environment activated."
@@ -66,7 +67,7 @@ echo
 
 # Step 2: Install dependencies from requirements.txt using uv
 echo "[2/4] Installing Python dependencies with uv..."
-/root/.local/bin/uv pip install -r notebooks/requirements.txt
+uv pip install -r notebooks/requirements.txt
 if [ $? -ne 0 ]; then
     echo "Error: Failed to install dependencies. Exiting."
     exit 1
