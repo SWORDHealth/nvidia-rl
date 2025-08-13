@@ -37,6 +37,9 @@ mkdir -p "$LOG_DIR"
 # This block defines the commands that will be executed on the compute node
 # inside the container after the resources are allocated.
 COMMAND_BLOCK=$(cat <<'EOF'
+# Unset UV_CACHE_DIR to prevent conflicts with host cache
+unset UV_CACHE_DIR
+
 # --- Environment Setup on the Compute Node ---
 VENV_DIR=".venv"
 KERNEL_NAME="slurm-job-kernel-mfathi"
@@ -120,6 +123,7 @@ srun --job-name=${JOB_NAME} \
      --mem=${MEM} \
      --partition=${PARTITION} \
      --account=${ACCOUNT} \
+     --no-container-mount-home \
      --container-image=${CONTAINER_IMAGE} \
      --container-workdir=${PROJECT_DIR} \
      --container-mounts=${PROJECT_DIR}:${PROJECT_DIR} \
