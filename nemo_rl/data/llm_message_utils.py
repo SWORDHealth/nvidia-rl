@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import re
 import warnings
 from typing import Any, Optional, cast
 
@@ -117,6 +118,7 @@ def add_loss_mask_to_message_log(
     batch_message_log: list[LLMMessageLogType],
     roles_to_train_on: list[str] = ["assistant"],
     only_unmask_final: bool = False,
+    debug: bool = False,
 ) -> None:
     """Add token-level loss masks to each message in a message log.
 
@@ -124,59 +126,97 @@ def add_loss_mask_to_message_log(
         message_log (LLMMessageLogType): List of message dictionaries containing token IDs and metadata
         roles_to_train_on (list[str]): List of strings indicating which speakers to unmask. Default: ["assistant"]
         only_unmask_final (bool): If True, only unmask the final message(s) in the log. 
-            - If any message has 'is_tool_resp' flag, unmasks all assistant turns after the last user turn 
-              where is_tool_resp==False
+            - If any message has 'is_tool_response' flag, unmasks all assistant turns after the last user turn 
+              where is_tool_response==False
             - Otherwise, only unmasks the very last message. Default: False
+        debug (bool): If True, print debug information about loss masking. Default: False
     """
     for i, role in enumerate(roles_to_train_on):
         roles_to_train_on[i] = role.lower()
 
-    for message_log in batch_message_log:
-        if only_unmask_final:
-            # Check if any message has is_tool_resp flag
-            has_tool_resp = any(msg.get("is_tool_resp") is not None for msg in message_log)
+    for batch_idx, message_log in enumerate(batch_message_log):
+        if debug:
+            print(f"\n=== DEBUG: Batch {batch_idx} Loss Masking ===")
             
-            if has_tool_resp:
-                # Find the last user turn where is_tool_resp==False
+            # Print message overview
+            for i, msg in enumerate(message_log):
+                role = msg.get("role", "unknown")
+                is_tool_response = msg.get("is_tool_response")
+                token_count = len(msg.get("token_ids", []))
+                content_preview = str(msg.get("content", ""))[:200] + "..." if len(str(msg.get("content", ""))) > 50 else str(msg.get("content", ""))
+                print(f"  Message {i}: role='{role}', is_tool_response={is_tool_response}, tokens={token_count}, content='{content_preview}'")
+        
+        if only_unmask_final:
+            # Check if any message has is_tool_response flag
+            has_tool_response = any(msg.get("is_tool_response") is not None for msg in message_log)
+            
+            if has_tool_response:
+                # Find the last user turn where is_tool_response==False
                 last_real_user_idx = -1
                 for i, msg in enumerate(message_log):
                     if (msg["role"] == "user" and 
-                        msg.get("is_tool_resp", False) == False):
+                        msg.get("is_tool_response", False) == False):
                         last_real_user_idx = i
                 
+                if debug:
+                    print(f"Last real user turn index: {last_real_user_idx}")
+                
                 # Unmask all assistant turns after the last real user turn
+                unmasked_count = 0
+                masked_count = 0
                 for i, message in enumerate(message_log):
                     if (i > last_real_user_idx and 
                         message["role"] in roles_to_train_on):
                         message["token_loss_mask"] = torch.ones_like(
                             cast(Tensor, message["token_ids"])
                         )
+                        unmasked_count += len(message["token_ids"])
+                        if debug:
+                            print(f"  UNMASKED Message {i} ({message['role']}): {len(message['token_ids'])} tokens")
                     else:
                         message["token_loss_mask"] = torch.zeros_like(
                             cast(Tensor, message["token_ids"])
                         )
+                        masked_count += len(message["token_ids"])
+                        if debug:
+                            print(f"  MASKED   Message {i} ({message['role']}): {len(message['token_ids'])} tokens")
+                
             else:
                 # Original logic: only unmask the very last message
+                unmasked_count = 0
+                masked_count = 0
                 for i, message in enumerate(message_log):
                     if i == len(message_log) - 1:
                         message["token_loss_mask"] = torch.ones_like(
                             cast(Tensor, message["token_ids"])
                         )
+                        unmasked_count += len(message["token_ids"])
+                       
                     else:
                         message["token_loss_mask"] = torch.zeros_like(
                             cast(Tensor, message["token_ids"])
                         )
+                        masked_count += len(message["token_ids"])
+                        
         else:
             # Original logic: unmask all messages from specified roles
+            unmasked_count = 0
+            masked_count = 0
             for i, message in enumerate(message_log):
                 if message["role"] in roles_to_train_on:
                     message["token_loss_mask"] = torch.ones_like(
                         cast(Tensor, message["token_ids"])
                     )
+                    unmasked_count += len(message["token_ids"])
+        
                 else:
                     message["token_loss_mask"] = torch.zeros_like(
                         cast(Tensor, message["token_ids"])
                     )
+                    masked_count += len(message["token_ids"])
+                   
+        if debug:
+            print("=== END DEBUG ===")
 
 
 def _pad_tensor(
@@ -432,8 +472,8 @@ def get_message_boundary_index(prev_msg: str, full_msg: str) -> int:
     marker_positions.sort()
     expected_prev_end = len(prev_msg)
 
-    # Allow some tolerance (within 100 chars) for minor formatting differences
-    tolerance = 100
+    # Allow some tolerance (within 20 chars) for minor formatting differences
+    tolerance = 20
     
     for pos, marker in marker_positions:
         if pos >= expected_prev_end - tolerance:
@@ -495,7 +535,14 @@ def get_formatted_message_log(
 
         ## pull out the chunk corresponding to the current message
         message_chunk = formatted_message[prev_message_len_no_eos:]
-
+        
+        # Store the original content to preserve reasoning tokens if they exist
+        has_original_reasoning_tokens = "<think>" in message.get("content", "")
+        # Handle reasoning tokens: only preserve them if they were in the original message
+        if not has_original_reasoning_tokens:
+            # Remove any <think> </think> tags that the tokenizer may have added
+            message_chunk = message_chunk.replace("\n<think>\n\n</think>\n", "")
+        
         if i == 0:
             if add_bos_token:
                 if tokenizer.bos_token is None:

@@ -19,7 +19,7 @@ import torch
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 # OpenAI-API-like message log, but every messsage may contain associated tensors (i.e. tokenized strings and logprobs) in addition to the original "content" string
-LLMMessageLogType = list[dict[str, Union[str, torch.Tensor]]]
+LLMMessageLogType = list[dict[str, Union[str, torch.Tensor, bool]]]
 
 # Flattened message log where all tensors and data are concatenated together for a conversation
 # Converts a conversation from list-of-turns format to key-value format with concatenated tensors
