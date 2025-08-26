@@ -240,7 +240,8 @@ def validate(
             ## add loss mask based on role to every message
             add_loss_mask_to_message_log(
                 val_batch["message_log"],
-                roles_to_train_on=["assistant"],
+                roles_to_train_on=master_config["data"].get("roles_to_train_on", ["assistant"]),
+                only_unmask_final=master_config["data"].get("only_unmask_final", False),
             )
 
             cat_and_padded, input_lengths = batched_message_log_to_flat_message(
@@ -389,7 +390,8 @@ def sft_train(
                     ## add loss mask based on role to every message
                     add_loss_mask_to_message_log(
                         batch["message_log"],
-                        roles_to_train_on=["assistant"],
+                        roles_to_train_on=master_config["data"].get("roles_to_train_on", ["assistant"]),
+                        only_unmask_final=master_config["data"].get("only_unmask_final", False),
                     )
 
                     cat_and_padded, input_lengths = batched_message_log_to_flat_message(

@@ -123,23 +123,52 @@ def add_loss_mask_to_message_log(
     Args:
         message_log (LLMMessageLogType): List of message dictionaries containing token IDs and metadata
         roles_to_train_on (list[str]): List of strings indicating which speakers to unmask. Default: ["assistant"]
-        only_unmask_final (bool): If True, only unmask the final message in the log. Default: False
+        only_unmask_final (bool): If True, only unmask the final message(s) in the log. 
+            - If any message has 'is_tool_resp' flag, unmasks all assistant turns after the last user turn 
+              where is_tool_resp==False
+            - Otherwise, only unmasks the very last message. Default: False
     """
     for i, role in enumerate(roles_to_train_on):
         roles_to_train_on[i] = role.lower()
 
     for message_log in batch_message_log:
-        for i, message in enumerate(message_log):
-            if only_unmask_final:
-                if i == len(message_log) - 1:
-                    message["token_loss_mask"] = torch.ones_like(
-                        cast(Tensor, message["token_ids"])
-                    )
-                else:
-                    message["token_loss_mask"] = torch.zeros_like(
-                        cast(Tensor, message["token_ids"])
-                    )
+        if only_unmask_final:
+            # Check if any message has is_tool_resp flag
+            has_tool_resp = any(msg.get("is_tool_resp") is not None for msg in message_log)
+            
+            if has_tool_resp:
+                # Find the last user turn where is_tool_resp==False
+                last_real_user_idx = -1
+                for i, msg in enumerate(message_log):
+                    if (msg["role"] == "user" and 
+                        msg.get("is_tool_resp", False) == False):
+                        last_real_user_idx = i
+                
+                # Unmask all assistant turns after the last real user turn
+                for i, message in enumerate(message_log):
+                    if (i > last_real_user_idx and 
+                        message["role"] in roles_to_train_on):
+                        message["token_loss_mask"] = torch.ones_like(
+                            cast(Tensor, message["token_ids"])
+                        )
+                    else:
+                        message["token_loss_mask"] = torch.zeros_like(
+                            cast(Tensor, message["token_ids"])
+                        )
             else:
+                # Original logic: only unmask the very last message
+                for i, message in enumerate(message_log):
+                    if i == len(message_log) - 1:
+                        message["token_loss_mask"] = torch.ones_like(
+                            cast(Tensor, message["token_ids"])
+                        )
+                    else:
+                        message["token_loss_mask"] = torch.zeros_like(
+                            cast(Tensor, message["token_ids"])
+                        )
+        else:
+            # Original logic: unmask all messages from specified roles
+            for i, message in enumerate(message_log):
                 if message["role"] in roles_to_train_on:
                     message["token_loss_mask"] = torch.ones_like(
                         cast(Tensor, message["token_ids"])
@@ -372,6 +401,47 @@ def get_first_index_that_differs(str1: str, str2: str) -> int:
     return min(len(str1), len(str2))
 
 
+def get_message_boundary_index(prev_msg: str, full_msg: str) -> int:
+    """Find message boundary using only boundary markers."""
+    if len(prev_msg) == 0:
+        return 0
+    
+    # Check for endoftext marker - if present, everything after it is a new conversation
+    endoftext_pos = full_msg.find("<|endoftext|>")
+    if endoftext_pos != -1:
+        # Find the first boundary marker after endoftext
+        after_endoftext = full_msg[endoftext_pos + len("<|endoftext|>"):]
+        marker_in_new_conversation = after_endoftext.find("<|im_start|>")
+        if marker_in_new_conversation != -1:
+            return endoftext_pos + len("<|endoftext|>") + marker_in_new_conversation
+    
+    # Find all boundary markers in the full message
+    boundary_markers = ["<|im_start|>"]
+    marker_positions = []
+    
+    for marker in boundary_markers:
+        pos = 0
+        while True:
+            pos = full_msg.find(marker, pos)
+            if pos == -1:
+                break
+            marker_positions.append((pos, marker))
+            pos += len(marker)
+    
+    # Sort positions and find the first marker that appears near or after the expected previous message end
+    marker_positions.sort()
+    expected_prev_end = len(prev_msg)
+
+    # Allow some tolerance (within 100 chars) for minor formatting differences
+    tolerance = 100
+    
+    for pos, marker in marker_positions:
+        if pos >= expected_prev_end - tolerance:
+            return pos
+    
+    return len(prev_msg)
+
+
 def get_formatted_message_log(
     message_log: LLMMessageLogType,
     tokenizer: TokenizerType,
@@ -418,7 +488,7 @@ def get_formatted_message_log(
         )
 
         ## get the length of the previous message, excluding the eos token (if present)
-        prev_message_len_no_eos: int = get_first_index_that_differs(
+        prev_message_len_no_eos: int = get_message_boundary_index(
             prev_formatted_message,
             formatted_message,
         )

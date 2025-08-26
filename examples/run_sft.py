@@ -94,6 +94,8 @@ def sft_preprocessor(
 def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
     print("\n▶ Setting up data...")
     data_cls = data_config["dataset_name"]
+    if 'sword' in data_config["dataset_name"] or 'Nemotron' in data_config["dataset_name"]:
+        data_cls = 'mind'
     if data_cls == "open_assistant":
         data = hf_datasets.OasstDataset(
             output_dir="/tmp/open_assistant", seed=data_config["seed"]
@@ -121,6 +123,11 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
             data_config["chat_key"],
             data_config["system_key"],
             data_config["system_prompt"],
+        )
+    elif data_cls == "mind":
+        data = hf_datasets.MindDataset(
+            data_config["dataset_name"],
+            data_config["seed"],
         )
     else:
         raise ValueError(f"Unknown dataset class: {data_cls}")
@@ -157,6 +164,19 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
         ),
         max_seq_length=data_config["max_input_seq_length"],
     )
+
+    """
+    for i in train_dataset:
+        print('ooooooooooooo')
+        for j in range(len(i['message_log'])):
+            #print('-----content-----')
+            #print(i['message_log'][j]['content'])
+            #print('-----token_ids-----')
+            #print(i['message_log'][j]['token_ids'])
+            print('-----decoded tokens-----')
+            print(tokenizer.decode(i['message_log'][j]['token_ids']))
+        print('\n\n')
+    """
 
     return train_dataset, val_dataset, sft_task_spec
 
