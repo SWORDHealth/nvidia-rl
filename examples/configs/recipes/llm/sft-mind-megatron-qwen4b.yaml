@@ -10,7 +10,7 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: results/sft_mind_qwen4b_16k_2708
+  checkpoint_dir: results/sft_mind_qwen4b_16k_2608
   metric_name: val_loss
   higher_is_better: false
   keep_top_k: 5
@@ -121,7 +121,7 @@ data:
   roles_to_train_on: ["assistant"]
 
 logger:
-  log_dir: logs/sft-mind-qwen4b_16k_2708  # Base directory for all logs
+  log_dir: logs/sft-mind-qwen4b_16k_2608  # Base directory for all logs
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
@@ -129,13 +129,13 @@ logger:
   num_val_samples_to_print: 0
   wandb:
     project: nemo-rl
-    name: sft-mind-qwen4b_16k_2708  # Base directory for all logs
+    name: sft-mind-qwen4b_16k_2608  # Base directory for all logs
   tensorboard:
-    log_dir: tb_logs-sft-mind-qwen4b_16k_2708  # Base directory for all logs
+    log_dir: tb_logs-sft-mind-qwen4b_16k_2608  # Base directory for all logs
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10
 
 cluster:
   gpus_per_node: 4
-  num_nodes: 1
+  num_nodes: 8
