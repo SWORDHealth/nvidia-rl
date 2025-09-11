@@ -18,6 +18,7 @@ from typing import Any, Optional
 from datasets import Dataset, load_dataset, load_from_disk
 
 from nemo_rl.data.interfaces import TaskDataSpec
+import os
 
 
 def format(
@@ -35,9 +36,12 @@ def prepare_mind_dataset(
 
     # Load the original dataset
     if 'swordhealth' in dataset_name:
-        original_ds = load_dataset(dataset_name, split='train')
-    else: 
+        token = os.getenv('HUGGINGFACE_HUB_TOKEN')
+        original_ds = load_dataset(dataset_name, split='train', token=token)
+    else:
         original_ds = load_from_disk(dataset_name)
+        if 'train' in original_ds:
+            original_ds = original_ds['train']
 
     # Split into train and validation sets using HF's train_test_split
     split_ds = original_ds.train_test_split(test_size=test_size, seed=seed)

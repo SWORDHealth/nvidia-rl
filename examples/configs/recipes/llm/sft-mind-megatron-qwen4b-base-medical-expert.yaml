@@ -10,16 +10,16 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: results/sft_mind_qwen4b_16k_0509_3epoch_merge1
+  checkpoint_dir: results/sft_mind_qwen4b_base_medical_expert_16k_0509
   metric_name: val_loss
   higher_is_better: false
   keep_top_k: 20
-  save_period: 1439  
+  save_period: 1549
   # save_every_epoch: true  # Save checkpoint at the end of every epoch
   checkpoint_must_save_by: null 
 
 policy:
-  model_name: "/mnt/data/pmartins/merged_models/Qwen3-4B-merged-sft-v1-16k-0309_3epochs-1-Thinking-2507-5050"
+  model_name: "/mnt/data/shared/models/Qwen3-4B-Base"
   tokenizer:
     name: ${policy.model_name}
   train_global_batch_size: 512
@@ -93,8 +93,8 @@ policy:
       end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
       weight_decay_incr_style: "constant"
       lr_decay_style: "cosine"
-      lr_decay_iters: 11512 #5756 
-      lr_warmup_iters: 1151 #575 
+      lr_decay_iters: 3098 
+      lr_warmup_iters: 309
       lr_warmup_init: 0
       
     distributed_data_parallel_config:
@@ -109,7 +109,7 @@ policy:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: "/mnt/data/pmartins/data/merged_datasets/Nemotron-SFT-v1-merged-2608"
+  dataset_name: "/mnt/data/pmartins/data/merged_datasets/Medical-Mind-SFT-v1-merged-0509"
   prompt_file: null
   split: "train"
   add_bos: true
@@ -121,7 +121,7 @@ data:
   roles_to_train_on: ["assistant"]
 
 logger:
-  log_dir: logs/sft-mind-qwen4b_16k_0509_3epoch_merge1  # Base directory for all logs
+  log_dir: logs/sft_mind_qwen4b_base_medical_expert_16k__0509  # Base directory for all logs
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
@@ -129,13 +129,13 @@ logger:
   num_val_samples_to_print: 0
   wandb:
     project: nemo-rl
-    name: sft-mind-qwen4b_16k_0509_3epoch_merge1  # Base directory for all logs
+    name: sft_mind_qwen4b_base_medical_expert_16k_0509  # Base directory for all logs
   tensorboard:
-    log_dir: tb_logs-sft-mind-qwen4b_16k_0509_3epoch_merge1  # Base directory for all logs
+    log_dir: sft_mind_qwen4b_base_medical_expert_16k_0509  # Base directory for all logs
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10
 
 cluster:
   gpus_per_node: 8
-  num_nodes: 8
+  num_nodes: 4
