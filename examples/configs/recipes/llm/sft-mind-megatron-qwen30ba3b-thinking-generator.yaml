@@ -14,7 +14,7 @@ checkpointing:
   metric_name: val_loss
   higher_is_better: false
   keep_top_k: 20
-  save_period: 2134  
+  save_period: 1497  
   # save_every_epoch: true  # Save checkpoint at the end of every epoch
   checkpoint_must_save_by: null 
 
@@ -23,7 +23,7 @@ policy:
   tokenizer:
     name: ${policy.model_name}
   train_global_batch_size: 512
-  train_micro_batch_size: 4
+  train_micro_batch_size: 2
   max_total_sequence_length: 8192
   precision: bfloat16
   
@@ -52,7 +52,7 @@ policy:
     expert_tensor_parallel_size: 1
     expert_model_parallel_size: 8
     pipeline_model_parallel_size: 1
-    sequence_parallel: true
+    sequence_parallel: false
     context_parallel_size: 1
     pipeline_dtype: ${policy.precision}
     num_layers_in_first_pipeline_stage: null
@@ -93,8 +93,8 @@ policy:
       end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
       weight_decay_incr_style: "constant"
       lr_decay_style: "cosine"
-      lr_decay_iters: 4268 
-      lr_warmup_iters: 426
+      lr_decay_iters: 4491 
+      lr_warmup_iters: 449
       lr_warmup_init: 0
       
     distributed_data_parallel_config:
