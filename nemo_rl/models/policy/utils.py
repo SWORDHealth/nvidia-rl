@@ -215,6 +215,13 @@ def get_runtime_env_for_policy_worker(policy_worker_name: str) -> dict[str, Any]
         **get_nsight_config_if_pattern_matches(policy_worker_name),
     }
 
+    # Ray workers run in isolated environments and need PYTHONPATH to find megatron.bridge
+    current_pythonpath = os.environ.get("PYTHONPATH", "")
+    if current_pythonpath:
+        if "env_vars" not in runtime_env:
+            runtime_env["env_vars"] = {}
+        runtime_env["env_vars"]["PYTHONPATH"] = current_pythonpath
+
     return runtime_env
 
 

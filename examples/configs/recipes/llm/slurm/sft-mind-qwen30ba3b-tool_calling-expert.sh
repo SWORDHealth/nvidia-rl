@@ -49,6 +49,9 @@ export TORCH_NCCL_ENABLE_MONITORING=0
 export PYTHONUNBUFFERED=1
 export PYTHONFAULTHANDLER=1
 
+# Add Megatron-Bridge to Python path
+export PYTHONPATH="/home/pmartins/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/src:$PYTHONPATH"
+
 # Set CUDA devices
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
