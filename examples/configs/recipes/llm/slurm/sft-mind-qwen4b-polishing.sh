@@ -2,14 +2,14 @@
 # SLURM batch script for NeMo RL Multi-Node SFT Training
 # 8 nodes with 8 GPUs each
 
-#SBATCH --job-name=nemo-rl-sft-mind-polished-merged_experts-0509-Thinking-2507-0202020202_lr5e-6
-#SBATCH --nodes=8
+#SBATCH --job-name=nemo-rl-sft-mind-polished-merged_experts-1109-Thinking-2507-0202020202_data1509
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128
 #SBATCH --time=72:00:00
-#SBATCH --output=slurm_logs/nemo-rl-sft-mind-polished-merged_experts-0509-Thinking-2507-0202020202_data1009-%j.out
-#SBATCH --error=slurm_logs/nemo-rl-sft-mind-polished-merged_experts-0509-Thinking-2507-0202020202_data1009-%j.err
+#SBATCH --output=slurm_logs/nemo-rl-sft-mind-polished-merged_experts-1109-Thinking-2507-0202020202_data1509-%j.out
+#SBATCH --error=slurm_logs/nemo-rl-sft-mind-polished-merged_experts-1109-Thinking-2507-0202020202_data1509-%j.err
 
 # Create a script that will be executed on each node via srun (in shared location)
 cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_merged.sh << 'WORKER_SCRIPT_EOF'
