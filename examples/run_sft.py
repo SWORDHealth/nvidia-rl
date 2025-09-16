@@ -98,10 +98,7 @@ def sft_preprocessor(
 
 def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
     print("\n▶ Setting up data...")
-    data_cls = data_config["dataset_name"]
-
-    if 'sword' in data_config["dataset_name"] or 'Nemotron' in data_config["dataset_name"] or "Mind" in data_config["dataset_name"]:
-        data_cls = 'mind'
+    data_cls = data_config.get("data_cls", data_config["dataset_name"])
 
     datum_preprocessor = None
     if data_cls == "open_assistant":

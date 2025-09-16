@@ -111,6 +111,7 @@ policy:
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
   dataset_name: "/mnt/data/pmartins/data/merged_datasets/Tool_calling-Mind-SFT-v1-merged-0509"
+  data_cls: mind
   prompt_file: null
   split: "train"
   add_bos: true
