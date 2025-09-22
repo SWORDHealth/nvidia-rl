@@ -99,12 +99,33 @@ def export_model_from_megatron(
     hf_tokenizer_path: str,
     overwrite: bool = False,
 ):
+    import torch
+
     if os.path.exists(output_path) and not overwrite:
         raise FileExistsError(
             f"HF checkpoint already exists at {output_path}. Delete it to run or set overwrite=True."
         )
 
     bridge = AutoBridge.from_hf_pretrained(hf_model_name, trust_remote_code=True)
+
+    # Initialize single-process distributed environment for conversion
+    if not torch.distributed.is_initialized():
+        # Set environment variables for single-process distributed setup
+        import os as _os
+        _os.environ.setdefault("RANK", "0")
+        _os.environ.setdefault("WORLD_SIZE", "1")
+        _os.environ.setdefault("MASTER_ADDR", "localhost")
+        _os.environ.setdefault("MASTER_PORT", "29500")
+
+        # Use gloo backend for single-process conversion (supports both CPU and GPU tensors)
+        torch.distributed.init_process_group("gloo", rank=0, world_size=1)
+        if torch.cuda.is_available():
+            torch.cuda.set_device(0)
+
+    # Get model provider and initialize parallel state for conversion
+    model_provider = bridge.to_megatron_provider(load_weights=False)
+    model_provider.initialize_model_parallel(seed=0)
+
     megatron_model = bridge.load_megatron_model(input_path)
     bridge.save_hf_pretrained(megatron_model, output_path)
 
