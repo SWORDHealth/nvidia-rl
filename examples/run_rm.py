@@ -26,6 +26,7 @@ from nemo_rl.algorithms.utils import get_tokenizer
 from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, load_preference_dataset
 from nemo_rl.data.datasets.preference_datasets import PreferenceDataset
+from nemo_rl.data.datasets.preference_datasets.mind_rm import MindRMDataset
 from nemo_rl.data.interfaces import DatumSpec, TaskDataSpec
 from nemo_rl.data.llm_message_utils import get_formatted_message_log
 from nemo_rl.distributed.virtual_cluster import init_ray
@@ -134,19 +135,11 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
 
     if data_cls == "PreferenceDataset":
         data_path = data_config["train_data_path"]
-        data = hf_datasets.PreferenceDataset(data_path, split="train")
-        train_dataset = data.formatted_ds["train"]
-        val_dataset = None
-    elif data_cls == "HelpSteer3":
-        data = hf_datasets.HelpSteer3Dataset()
-        train_dataset = data.formatted_ds["train"]
-        val_dataset = data.formatted_ds["validation"]
-    elif data_cls == "Tulu3Preference":
-        data = hf_datasets.Tulu3PreferenceDataset()
+        data = PreferenceDataset(data_path, split="train")
         train_dataset = data.formatted_ds["train"]
         val_dataset = None
     elif data_cls == 'mind':
-        data = hf_datasets.MindRMDataset(dataset_name=data_config["dataset_name"])
+        data = MindRMDataset(dataset_name=data_config["dataset_name"])
         train_dataset = data.formatted_ds["train"]
         val_dataset = data.formatted_ds["validation"]
     else:

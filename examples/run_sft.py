@@ -25,6 +25,7 @@ from nemo_rl.algorithms.sft import MasterConfig, setup, sft_train
 from nemo_rl.algorithms.utils import get_tokenizer
 from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, load_response_dataset
+from nemo_rl.data.datasets.response_datasets.mind import MindDataset
 from nemo_rl.data.interfaces import DatumSpec, TaskDataSpec
 from nemo_rl.data.llm_message_utils import get_formatted_message_log
 from nemo_rl.distributed.virtual_cluster import init_ray
@@ -102,48 +103,11 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
     data_cls = data_config.get("data_cls", data_config["dataset_name"])
 
     datum_preprocessor = None
-    if data_cls == "open_assistant":
-        data = hf_datasets.OasstDataset(
-            output_dir="/tmp/open_assistant",
-            seed=seed,
-        )
-    elif data_cls == "squad":
-        data = hf_datasets.SquadDataset()
-    elif data_cls == "prompt_response_dataset":
-        data = hf_datasets.PromptResponseDataset(
-            data_config["train_data_path"],
-            data_config["val_data_path"],
-            data_config["input_key"],
-            data_config["output_key"],
-        )
-    elif data_cls == "openmathinstruct2":
-        data = hf_datasets.OpenMathInstruct2Dataset(
-            split=data_config["split"],
-            output_key=data_config["output_key"],
-            prompt_file=data_config["prompt_file"],
-            seed=seed,
-        )
-    elif data_cls == "openai_format":
-        data = hf_datasets.OpenAIFormatDataset(
-            data_config["train_data_path"],
-            data_config["val_data_path"],
-            data_config["chat_key"],
-            data_config["system_key"],
-            data_config["system_prompt"],
-        )
-    elif data_cls == "mind":
-        data = hf_datasets.MindDataset(
+    if data_cls == "mind":
+        data = MindDataset(
             data_config["dataset_name"],
             data_config["seed"],
         )
-    elif data_cls == "clevr_cogent":
-        from nemo_rl.data.hf_datasets.clevr import format_clevr_cogent_dataset
-
-        data = hf_datasets.CLEVRCoGenTDataset(
-            split=data_config["split"],
-            prompt_file=data_config["prompt_file"],
-        )
-        datum_preprocessor = partial(format_clevr_cogent_dataset, return_pil=True)
     else:
         raise ValueError(f"Unknown dataset class: {data_cls}")
     print(
