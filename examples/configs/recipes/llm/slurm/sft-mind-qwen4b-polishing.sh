@@ -2,17 +2,17 @@
 # SLURM batch script for NeMo RL Multi-Node SFT Training
 # 8 nodes with 8 GPUs each
 
-#SBATCH --job-name=nemo-rl-sft-mind-polished-merged_experts-1109-Thinking-2507-0202020202_data1509_test
+#SBATCH --job-name=nemo-rl-sft-mind-polished-thinking_experts-1109-Thinking-2507-0202020202_data1509
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128
 #SBATCH --time=72:00:00
-#SBATCH --output=slurm_logs/nemo-rl-sft-mind-polished-merged_experts-1109-Thinking-2507-0202020202_data1509_test-%j.out
-#SBATCH --error=slurm_logs/nemo-rl-sft-mind-polished-merged_experts-1109-Thinking-2507-0202020202_data1509_test-%j.err
+#SBATCH --output=slurm_logs/nemo-rl-sft-mind-polished-thinking_experts-1109-Thinking-2507-0202020202_data1509-%j.out
+#SBATCH --error=slurm_logs/nemo-rl-sft-mind-polished-thinking_experts-1109-Thinking-2507-0202020202_data1509-%j.err
 
 # Create a script that will be executed on each node via srun (in shared location)
-cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_merged.sh << 'WORKER_SCRIPT_EOF'
+cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_thinking.sh << 'WORKER_SCRIPT_EOF'
 #!/bin/bash
 
 # 1. SET UP DISTRIBUTED ENVIRONMENT VARIABLES FOR SLURM
@@ -151,7 +151,7 @@ fi
 WORKER_SCRIPT_EOF
 
 # Make the worker script executable
-chmod +x /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_merged.sh
+chmod +x /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_thinking.sh
 
 echo "=== Starting Multi-Node SLURM Job ==="
 echo "Job ID: $SLURM_JOB_ID"
@@ -159,7 +159,7 @@ echo "Nodes: $SLURM_JOB_NUM_NODES"
 echo "Node list: $SLURM_JOB_NODELIST"
 
 # Launch the worker script on all nodes simultaneously using srun
-srun --ntasks-per-node=1 /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_merged.sh
+srun --ntasks-per-node=1 /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_polishing_thinking.sh
 
 echo "=== Multi-Node Job Completed ==="
                                                 

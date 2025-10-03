@@ -10,20 +10,20 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen4b_thinking_tool_calling_expert_8k_1709
+  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_0310_w_chat
   metric_name: val_loss
   higher_is_better: false
   keep_top_k: 20
-  save_period: 1646  
+  save_period: 378  
   # save_every_epoch: true  # Save checkpoint at the end of every epoch
   checkpoint_must_save_by: null 
 
 policy:
-  model_name: "/mnt/data/shared/models/Qwen3-4B-Thinking-2507"
+  model_name: "/mnt/data/shared/models/Qwen3-30B-A3B-Thinking-2507"
   tokenizer:
     name: ${policy.model_name}
   train_global_batch_size: 512
-  train_micro_batch_size: 4
+  train_micro_batch_size: 2
   max_total_sequence_length: 8192
   precision: bfloat16
   
@@ -50,7 +50,7 @@ policy:
     converter_type: "LlamaForCausalLM"
     tensor_model_parallel_size: 1
     expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 1
+    expert_model_parallel_size: 8
     pipeline_model_parallel_size: 1
     sequence_parallel: false
     context_parallel_size: 1
@@ -94,8 +94,8 @@ policy:
       end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
       weight_decay_incr_style: "constant"
       lr_decay_style: "cosine"
-      lr_decay_iters: 1646 
-      lr_warmup_iters: 164
+      lr_decay_iters: 378 
+      lr_warmup_iters: 37
       lr_warmup_init: 0
       
     distributed_data_parallel_config:
@@ -110,7 +110,7 @@ policy:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: "/mnt/data/pmartins/data/merged_datasets/Tool_calling-Mind-SFT-v1-merged-1709"
+  dataset_name: "/mnt/data/pmartins/data/merged_datasets/Mind-SFT-v1-merged-0310_w_chat"
   data_cls: mind
   prompt_file: null
   split: "train"
@@ -123,7 +123,7 @@ data:
   roles_to_train_on: ["assistant"]
 
 logger:
-  log_dir: logs/sft_mind_qwen4b_thinking_tool_calling_expert_8k_1709  # base directory for all logs
+  log_dir: logs/sft_mind_qwen30ba3b_thinking_mind_expert_8k_0310_w_chat
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
@@ -131,9 +131,9 @@ logger:
   num_val_samples_to_print: 0
   wandb:
     project: nemo-rl
-    name: sft_mind_qwen4b_thinking_tool_calling_expert_8k_1709  # base directory for all logs
+    name: sft_mind_qwen30ba3b_thinking_mind_expert_8k_0310_w_chat
   tensorboard:
-    log_dir: sft_mind_qwen4b_thinking_tool_calling_expert_8k_1709  # base directory for all logs
+    log_dir: sft_mind_qwen30ba3b_thinking_mind_expert_8k_0310_w_chat
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10

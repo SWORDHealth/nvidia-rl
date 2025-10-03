@@ -2,17 +2,17 @@
 # SLURM batch script for NeMo RL Multi-Node SFT Training
 # 4 nodes with 8 GPUs each
 
-#SBATCH --job-name=nemo-rl-sft-mind-qwen30ba3b-merged-medical-expert
+#SBATCH --job-name=nemo-rl-sft-mind-qwen30ba3b-thinking-medical-expert
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128
 #SBATCH --time=72:00:00
-#SBATCH --output=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-merged-medical-expert-%j.out
-#SBATCH --error=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-merged-medical-expert-%j.err
+#SBATCH --output=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-thinking-medical-expert-%j.out
+#SBATCH --error=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-thinking-medical-expert-%j.err
 
 # Create a script that will be executed on each node via srun (in shared location)
-cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_medical_expert.sh << 'WORKER_SCRIPT_EOF'
+cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_thinking_medical_expert.sh << 'WORKER_SCRIPT_EOF'
 #!/bin/bash
 
 # 1. SET UP DISTRIBUTED ENVIRONMENT VARIABLES FOR SLURM
@@ -125,7 +125,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     # Run with detailed logging and real-time output
     uv run python examples/run_sft.py \
-        --config examples/configs/recipes/llm/sft-mind-megatron-qwen30ba3b-merged-medical-expert.yaml \
+        --config examples/configs/recipes/llm/sft-mind-megatron-qwen30ba3b-thinking-medical-expert.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?
@@ -151,7 +151,7 @@ fi
 WORKER_SCRIPT_EOF
 
 # Make the worker script executable
-chmod +x /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_medical_expert.sh
+chmod +x /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_thinking_medical_expert.sh
 
 echo "=== Starting Multi-Node SLURM Job ==="
 echo "Job ID: $SLURM_JOB_ID"
@@ -159,6 +159,6 @@ echo "Nodes: $SLURM_JOB_NUM_NODES"
 echo "Node list: $SLURM_JOB_NODELIST"
 
 # Launch the worker script on all nodes simultaneously using srun
-srun --ntasks-per-node=1 /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_medical_expert.sh
+srun --ntasks-per-node=1 /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_thinking_medical_expert.sh
 
 echo "=== Multi-Node Job Completed ==="

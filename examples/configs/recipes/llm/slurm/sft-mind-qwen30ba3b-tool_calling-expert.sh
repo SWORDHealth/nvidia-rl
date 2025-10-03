@@ -2,14 +2,14 @@
 # SLURM batch script for NeMo RL Multi-Node SFT Training
 # 4 nodes with 8 GPUs each
 
-#SBATCH --job-name=nemo-rl-sft-mind-qwen30ba3b-merged-tool_calling-expert
+#SBATCH --job-name=nemo-rl-sft-mind-qwen30ba3b-thinking-tool_calling-expert
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128
 #SBATCH --time=72:00:00
-#SBATCH --output=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-merged-tool_calling-expert-%j.out
-#SBATCH --error=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-merged-tool_calling-expert-%j.err
+#SBATCH --output=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-thinking-tool_calling-expert-%j.out
+#SBATCH --error=slurm_logs/nemo-rl-sft-mind-qwen30ba3b-thinking-tool_calling-expert-%j.err
 
 # Create a script that will be executed on each node via srun (in shared location)
 cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_tool_calling_expert.sh << 'WORKER_SCRIPT_EOF'
@@ -125,7 +125,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     # Run with detailed logging and real-time output
     uv run python examples/run_sft.py \
-        --config examples/configs/recipes/llm/sft-mind-megatron-qwen30ba3b-merged-tool_calling-expert.yaml \
+        --config examples/configs/recipes/llm/sft-mind-megatron-qwen30ba3b-thinking-tool_calling-expert.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?

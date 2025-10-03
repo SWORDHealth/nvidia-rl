@@ -62,18 +62,22 @@ def rm_preprocessor(
     # Lower rank is preferred
     if datum_dict["completions"][0]["rank"] < datum_dict["completions"][1]["rank"]:
         chosen_completion = datum_dict["completions"][0]
+        #chosen_completion = {'completion': [{"role": "assistant", "content": chosen_completion['completion']}],'rank': 0}
         rejected_completion = datum_dict["completions"][1]
+        #rejected_completion = {'completion': [{"role": "assistant", "content": rejected_completion['completion']}],'rank': 1}
     elif datum_dict["completions"][0]["rank"] > datum_dict["completions"][1]["rank"]:
         chosen_completion = datum_dict["completions"][1]
+        #chosen_completion = {'completion': [{"role": "assistant", "content": chosen_completion['completion']}],'rank': 0}
         rejected_completion = datum_dict["completions"][0]
+        #rejected_completion = {'completion': [{"role": "assistant", "content": rejected_completion['completion']}],'rank': 1}
     else:
         raise NotImplementedError(
             "Ties are not supported yet. You can use the following command to filter out ties: `cat <LocalPathToPreferenceDataset> | jq 'select(.completions[0].rank != .completions[1].rank)'`."
         )
 
-    messages_chosen = datum_dict["context"] + chosen_completion["completion"]
-    messages_rejected = datum_dict["context"] + rejected_completion["completion"]
-
+    messages_chosen = datum_dict["context"] + chosen_completion['completion']
+    messages_rejected = datum_dict["context"] + rejected_completion['completion']
+    
     message_log_chosen = get_formatted_message_log(
         messages_chosen, tokenizer, task_data_spec
     )
@@ -106,6 +110,11 @@ def rm_preprocessor(
         # safeguard against edge case where there are too many turns to fit within the max length
         assert max(length_chosen, length_rejected) <= max_seq_length
 
+    #print('message_log_chosen', message_log_chosen)
+    #print('\n\n\n')
+    #print('message_log_rejected', message_log_rejected)
+    #print('\n\n\n')
+
     output = {
         "message_log_chosen": message_log_chosen,
         "length_chosen": length_chosen,
@@ -120,7 +129,7 @@ def rm_preprocessor(
 
 def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
     print("\n▶ Setting up data...")
-    data_cls = data_config["dataset_name"]
+    data_cls = data_config.get("data_cls", data_config["dataset_name"])
 
     if data_cls == "PreferenceDataset":
         data_path = data_config["train_data_path"]
@@ -135,11 +144,16 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
         data = hf_datasets.Tulu3PreferenceDataset()
         train_dataset = data.formatted_ds["train"]
         val_dataset = None
+    elif data_cls == 'mind':
+        data = hf_datasets.MindRMDataset(dataset_name=data_config["dataset_name"])
+        train_dataset = data.formatted_ds["train"]
+        val_dataset = data.formatted_ds["validation"]
     else:
         raise ValueError(
             f"Unknown dataset class: {data_cls}. Supported datasets are: PreferenceDataset, HelpSteer3, and Tulu3Preference."
         )
 
+    print(data.formatted_ds['train'])
     if train_dataset:
         print(
             f"  ✓ Training dataset loaded with {len(data.formatted_ds['train'])} samples."

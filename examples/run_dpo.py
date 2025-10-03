@@ -150,6 +150,11 @@ def dpo_preprocessor(
             ]
         loss_multiplier = 0.0
 
+    #print('message_log_chosen', message_log_chosen)
+    #print('\n\n\n')
+    #print('message_log_rejected', message_log_rejected)
+    #print('\n\n\n')
+
     output = {
         "message_log_chosen": message_log_chosen,
         "length_chosen": length_chosen,
@@ -164,7 +169,7 @@ def dpo_preprocessor(
 
 def setup_data(data_config: DataConfig, policy_config: PolicyConfig):
     print("\n▶ Setting up data...")
-    data_cls = data_config["dataset_name"]
+    data_cls = data_config.get("data_cls", data_config["dataset_name"])
 
     if data_cls == "PreferenceDataset":
         data_path = data_config["train_data_path"]
@@ -184,6 +189,10 @@ def setup_data(data_config: DataConfig, policy_config: PolicyConfig):
             train_data_path=data_config["train_data_path"],
             val_data_path=data_config["val_data_path"],
         )
+        train_dataset = data.formatted_ds["train"]
+        val_dataset = data.formatted_ds["validation"]
+    elif data_cls == 'mind':
+        data = hf_datasets.MindDPODataset(dataset_name=data_config["dataset_name"])
         train_dataset = data.formatted_ds["train"]
         val_dataset = data.formatted_ds["validation"]
     else:

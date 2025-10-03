@@ -84,7 +84,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
     
     # Wait for worker to connect
     echo "Waiting for worker nodes to connect..."
-    sleep 30
+    sleep 20
     
 else
     echo "=== Starting Ray WORKER node ==="
@@ -104,13 +104,13 @@ if [ "$NODE_RANK" -eq 0 ]; then
     # Create a detailed log with timestamps and node info
     LOG_DIR="/home/pmartins/nemo-rl/slurm_logs/$(date +%Y%m%d)"
     mkdir -p "$LOG_DIR"
-    LOG_FILE="$LOG_DIR/training_qwen30ba3b_node_${NODE_RANK}_$(date +%H%M%S).log"
+    LOG_FILE="$LOG_DIR/training_qwen30ba3b_medical_node_${NODE_RANK}_$(date +%H%M%S).log"
 
     echo "📊 Starting training on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
 
     # Run with detailed logging and real-time output
     uv run python examples/run_sft.py \
-        --config examples/configs/recipes/llm/sft-mind-megatron-qwen30ba3b-thinking-chatif-expert.yaml \
+        --config examples/configs/recipes/llm/sft-mind-megatron-qwen30ba3b-thinking-medical-expert.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?

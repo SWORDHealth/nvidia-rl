@@ -10,7 +10,7 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: results/sft_mind_qwen30ba3b_merged_medical_expert_16k_0909
+  checkpoint_dir: results/sft_mind_qwen30ba3b_merged_medical_expert_16k_1609
   metric_name: val_loss
   higher_is_better: false
   keep_top_k: 20

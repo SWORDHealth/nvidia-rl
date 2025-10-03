@@ -25,6 +25,8 @@ from nemo_rl.data.hf_datasets.prompt_response_dataset import (
 )
 from nemo_rl.data.hf_datasets.squad import SquadDataset
 from nemo_rl.data.hf_datasets.mind import MindDataset
+from nemo_rl.data.hf_datasets.mind_dpo import MindDPODataset
+from nemo_rl.data.hf_datasets.mind_rm import MindRMDataset
 from nemo_rl.data.hf_datasets.tulu3 import Tulu3PreferenceDataset
 
 __all__ = [
@@ -40,4 +42,6 @@ __all__ = [
     "COMMON_CHAT_TEMPLATES",
     "MindDataset"
     "CLEVRCoGenTDataset",
+    "MindDPODataset",
+    "MindRMDataset",
 ]

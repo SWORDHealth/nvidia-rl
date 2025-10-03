@@ -67,7 +67,7 @@ class MindDataset:
         self,
         dataset_name,
         seed: int = 42,
-        test_size: float = 0.01,
+        test_size: float = 0.001,
     ):
         """Initialize the Mind dataset with train/validation split.
 

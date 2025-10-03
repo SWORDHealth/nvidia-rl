@@ -210,6 +210,7 @@ def convert_dcp_to_hf(
     hf_ckpt_path: str,
     model_name_or_path: str,
     tokenizer_name_or_path: str,
+    config: Optional[dict] = None,
     overwrite: bool = False,
 ) -> str:
     """Convert a Torch DCP checkpoint to a Hugging Face checkpoint.
@@ -223,6 +224,7 @@ def convert_dcp_to_hf(
         model_name_or_path (str): Model name or path for config
         tokenizer_name_or_path (str, optional): Tokenizer name or path.
                                                Defaults to model_name_or_path if None.
+        config (dict, optional): Training config to detect reward model. Defaults to None.
         overwrite (bool, optional): Whether to overwrite existing checkpoint. Defaults to False.
 
     Returns:
@@ -245,10 +247,38 @@ def convert_dcp_to_hf(
     assert set(state_dict.keys()) == {"model"}, (
         f"We expect that the state dict only has the top level model key, but found: {state_dict.keys()}"
     )
-    torch.save(state_dict["model"], weights_path)
 
-    config = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=True)
-    config.save_pretrained(hf_ckpt_path)
+    # Check if this is a reward model based on config
+    is_reward_model = False
+    if config is not None:
+        # Check for reward model indicators in the config
+        policy_config = config.get("policy", {})
+        reward_model_cfg = policy_config.get("reward_model_cfg", {})
+        is_reward_model = reward_model_cfg.get("enabled", False)
+
+    if is_reward_model:
+        # For reward models, load into AutoModelForSequenceClassification
+        from transformers import AutoModelForSequenceClassification
+
+        # Load the sequence classification model with proper config
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=True,
+            num_labels=1,
+            problem_type="regression",
+            torch_dtype=torch.bfloat16,  # Match the training precision
+        )
+
+        # Load the converted weights into the model
+        model.load_state_dict(state_dict["model"], strict=False)
+
+        # Save the model (this will save with the correct config)
+        model.save_pretrained(hf_ckpt_path)
+    else:
+        # For regular language models, save weights normally
+        torch.save(state_dict["model"], weights_path)
+        hf_config = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=True)
+        hf_config.save_pretrained(hf_ckpt_path)
 
     # TODO: After the following PR gets merged:
     # https://github.com/NVIDIA-NeMo/RL/pull/148/files
