@@ -17,10 +17,7 @@ import torch
 import torch.distributed
 
 from nemo_rl.algorithms.interfaces import LossFunction, LossType
-from nemo_rl.algorithms.utils import (
-    calculate_kl_penalty_joschu2020,
-    masked_mean,
-)
+from nemo_rl.algorithms.utils import calculate_kl, masked_mean
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.distributed.model_utils import (
     ChunkedDistributedEntropy,
@@ -37,11 +34,16 @@ Tensor = TypeVar("Tensor", bound=torch.Tensor)
 
 class ClippedPGLossConfig(TypedDict):
     reference_policy_kl_penalty: float
+    reference_policy_kl_type: str
+    kl_input_clamp_value: float | None
+    kl_output_clamp_value: float | None
     ratio_clip_min: float
     ratio_clip_max: float
-    ratio_clip_c: float
+    # Dual-clipping value (should be >1 if enabled; usually set to 3 empirically). None to disable.
+    ratio_clip_c: float | None
     use_on_policy_kl_approximation: bool
     use_importance_sampling_correction: bool
+    truncated_importance_sampling_ratio: float | None
     token_level_loss: bool
     # If True, apply the off-policy importance-sampling correction at the
     # sequence level (one weight per generated sample), as in GSPO.
@@ -108,10 +110,16 @@ class ClippedPGLossFn(LossFunction):
         self.ratio_clip_max = cfg["ratio_clip_max"]
         self.ratio_clip_c = cfg["ratio_clip_c"]  # set to None to disable dual-clipping
         self.reference_policy_kl_penalty = cfg["reference_policy_kl_penalty"]
+        self.reference_policy_kl_type = cfg["reference_policy_kl_type"]
+        self.kl_input_clamp_value = cfg["kl_input_clamp_value"]
+        self.kl_output_clamp_value = cfg["kl_output_clamp_value"]
         self.disable_ppo_ratio = cfg.get("disable_ppo_ratio", False)
         self.use_on_policy_kl_approximation = cfg["use_on_policy_kl_approximation"]
         self.use_importance_sampling_correction = cfg[
             "use_importance_sampling_correction"
+        ]
+        self.truncated_importance_sampling_ratio = cfg[
+            "truncated_importance_sampling_ratio"
         ]
         # Whether to compute importance weights per-sequence instead of per-token.
         self.sequence_level_importance_ratios = cfg.get(
@@ -124,6 +132,13 @@ class ClippedPGLossFn(LossFunction):
         if self.sequence_level_importance_ratios:
             assert self.loss_type == LossType.SEQUENCE_LEVEL, (
                 "sequence-level importance sampling (e.g. GSPO) is mutually exclusive with token-level loss"
+            )
+        if self.truncated_importance_sampling_ratio is not None:
+            assert self.use_importance_sampling_correction, (
+                "truncated_importance_sampling_ratio is only supported when use_importance_sampling_correction is True"
+            )
+            assert self.truncated_importance_sampling_ratio > 0, (
+                "truncated_importance_sampling_ratio should be positive"
             )
 
     def __call__(
@@ -153,6 +168,60 @@ class ClippedPGLossFn(LossFunction):
         # average over all tokens in the microbatch
         mult_prob_error = masked_mean(
             torch.exp(lp_error * mask),
+            mask,
+            global_normalization_factor=global_valid_toks,
+        ).item()
+
+        # gen-kl: kl(P_gen || P_train)
+        # where log_ratio = prev_logprobs - generation_logprobs
+        gen_kl_error = calculate_kl(
+            logprobs=generation_logprobs,
+            logprobs_reference=prev_logprobs,
+            kl_type=self.reference_policy_kl_type,
+            input_clamp_value=None,
+            output_clamp_value=None,
+        )
+        gen_kl_error = masked_mean(
+            gen_kl_error,
+            mask,
+            global_normalization_factor=global_valid_toks,
+        ).item()
+
+        # policy-kl: kl(P_train || P_gen)
+        # where log_ratio = generation_logprobs - prev_logprobs
+        policy_kl_error = calculate_kl(
+            logprobs=prev_logprobs,
+            logprobs_reference=generation_logprobs,
+            kl_type=self.reference_policy_kl_type,
+            input_clamp_value=None,
+            output_clamp_value=None,
+        )
+        policy_kl_error = masked_mean(
+            policy_kl_error,
+            mask,
+            global_normalization_factor=global_valid_toks,
+        ).item()
+
+        # Jensen-Shannon divergence
+        # M = 0.5 * (P_train + P_gen)
+        # JSD = 0.5 * KL(P_train || M) + 0.5 * KL(P_gen || M)
+        log_mixture = torch.log(
+            0.5 * torch.exp(prev_logprobs) + 0.5 * torch.exp(generation_logprobs)
+        )
+        # KL(P_train || M)
+        kl_prev_to_mixture = (
+            torch.exp(prev_logprobs - log_mixture) - (prev_logprobs - log_mixture) - 1
+        )
+
+        # KL(P_gen || M)
+        kl_gen_to_mixture = (
+            torch.exp(generation_logprobs - log_mixture)
+            - (generation_logprobs - log_mixture)
+            - 1
+        )
+
+        js_divergence_error = masked_mean(
+            0.5 * kl_prev_to_mixture + 0.5 * kl_gen_to_mixture,
             mask,
             global_normalization_factor=global_valid_toks,
         ).item()
@@ -205,9 +274,12 @@ class ClippedPGLossFn(LossFunction):
             kl = (
                 kl_importance_weights
                 * self.reference_policy_kl_penalty
-                * calculate_kl_penalty_joschu2020(
-                    logprobs_policy=curr_logprobs,
+                * calculate_kl(
+                    logprobs=curr_logprobs,
                     logprobs_reference=reference_policy_logprobs,
+                    kl_type=self.reference_policy_kl_type,
+                    input_clamp_value=self.kl_input_clamp_value,
+                    output_clamp_value=self.kl_output_clamp_value,
                 )
             )
             if self.loss_type == LossType.TOKEN_LEVEL:
@@ -279,6 +351,12 @@ class ClippedPGLossFn(LossFunction):
             )
             actor_importance_weights_expanded = torch.nan_to_num(
                 actor_importance_weights_expanded, nan=0.0, posinf=0.0, neginf=0.0
+            )
+        # TIS see https://fengyao.notion.site/off-policy-rl
+        if self.truncated_importance_sampling_ratio is not None:
+            actor_importance_weights_expanded = torch.clamp(
+                actor_importance_weights_expanded,
+                max=self.truncated_importance_sampling_ratio,
             )
         actor_importance_weights = actor_importance_weights_expanded
         del actor_importance_weights_expanded
@@ -352,6 +430,9 @@ class ClippedPGLossFn(LossFunction):
                 "probs_ratio_clamped": probs_ratio_clamped,
                 "kl_penalty": kl.item() / self.reference_policy_kl_penalty if kl else 0,
                 "token_mult_prob_error": mult_prob_error,
+                "gen_kl_error": gen_kl_error,
+                "policy_kl_error": policy_kl_error,
+                "js_divergence_error": js_divergence_error,
                 "sampling_importance_ratio": sample_importance_ratio.item(),
                 "num_valid_samples": sample_mask.sum().item(),
                 "approx_entropy": seq_entropy_approx.item(),

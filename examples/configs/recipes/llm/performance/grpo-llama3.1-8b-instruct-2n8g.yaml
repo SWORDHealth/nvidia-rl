@@ -1,4 +1,4 @@
-defaults: ../../grpo_math_1B.yaml
+defaults: ../../../grpo_math_1B.yaml
 grpo:
   num_prompts_per_step: 64
   num_generations_per_prompt: 32
@@ -6,7 +6,7 @@ grpo:
 loss_fn:
   use_importance_sampling_correction: true
 checkpointing:
-  checkpoint_dir: results/grpo-llama3.1-8b-instruct-1n8g-megatron-fp8-rollouts
+  checkpoint_dir: results/grpo-llama3.1-8b-instruct-2n8g
 policy:
   model_name: meta-llama/Llama-3.1-8B-Instruct
   tokenizer:
@@ -28,25 +28,27 @@ policy:
       lr: 5.0e-07
       min_lr: 5.0e-08
       weight_decay: 0.0
+      use_precision_aware_optimizer: true
     scheduler:
       lr_warmup_iters: 2
       lr_warmup_init: 5.0e-08
+    fp8_cfg:
+      enabled: false
   generation:
     max_new_tokens: 4096
     stop_token_ids:
     - 128009
     vllm_cfg:
-      precision: fp8
       max_model_len: 4096
-      use_deep_gemm: true
 data:
   max_input_seq_length: 4096
 logger:
-  log_dir: logs/grpo-llama3.1-8b-instruct-1n8g-megatron-fp8-rollouts.v2
+  log_dir: logs/grpo-llama3.1-8b-instruct-2n8g
   wandb_enabled: true
   tensorboard_enabled: true
   wandb:
     project: nemo-rl
-    name: grpo-llama3.1-8b-instruct-1n8g-megatron-fp8-rollouts.v2
+    name: grpo-llama3.1-8b-instruct-2n8g
 cluster:
   gpus_per_node: 8
+  num_nodes: 2

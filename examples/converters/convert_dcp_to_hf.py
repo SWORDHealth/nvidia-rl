@@ -57,6 +57,7 @@ def main():
     # This is more stable than relying on the current NeMo-RL get_tokenizer() which can
     # change release to release.
     tokenizer_name_or_path = config["policy"]["model_name"]
+    hf_overrides = config["policy"].get("hf_overrides", {}) or {}
 
     hf_ckpt = convert_dcp_to_hf(
         dcp_ckpt_path=args.dcp_ckpt_path,
@@ -64,6 +65,7 @@ def main():
         model_name_or_path=model_name_or_path,
         tokenizer_name_or_path=tokenizer_name_or_path,
         config=config,
+        hf_overrides=hf_overrides,
     )
     print(f"Saved HF checkpoint to: {hf_ckpt}")
 

@@ -212,6 +212,7 @@ def convert_dcp_to_hf(
     tokenizer_name_or_path: str,
     config: Optional[dict] = None,
     overwrite: bool = False,
+    hf_overrides: Optional[dict[str, Any]] = {},
 ) -> str:
     """Convert a Torch DCP checkpoint to a Hugging Face checkpoint.
 

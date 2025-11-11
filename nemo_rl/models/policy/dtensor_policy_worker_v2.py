@@ -18,10 +18,11 @@ import os
 import warnings
 from collections import defaultdict
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from typing import Any, Generator, Iterable, Optional, cast
+from typing import Any, Generator, Optional, cast
 
 import ray
 import torch
+import zmq
 from accelerate import init_empty_weights
 from nemo_automodel import (
     NeMoAutoModelForSequenceClassification,
@@ -83,7 +84,6 @@ from nemo_rl.models.policy.interfaces import (
 from nemo_rl.models.policy.utils import (
     configure_dynamo_cache,
     get_gpu_info,
-    get_handle_from_tensor,
     get_runtime_env_for_policy_worker,
     import_class_from_path,
     resolve_model_class,
@@ -94,6 +94,7 @@ from nemo_rl.utils.automodel_checkpoint import (
 )
 from nemo_rl.utils.checkpoint import CheckpointingConfig
 from nemo_rl.utils.nsys import wrap_with_nvtx_name
+from nemo_rl.utils.packed_tensor import packed_broadcast_producer
 
 
 @ray.remote(
@@ -121,6 +122,7 @@ class DTensorPolicyWorkerV2:
         init_reference_model: bool = True,
         **kwargs: Any,
     ):
+        """Initialize the DTensorPolicyWorkerV2."""
         self.tokenizer = tokenizer
         self.processor = processor
         self.is_vlm = processor is not None
@@ -153,6 +155,7 @@ class DTensorPolicyWorkerV2:
         model_name = self.cfg["model_name"]
 
         self.cpu_offload = self.cfg["dtensor_cfg"]["cpu_offload"]
+        self.offload_optimizer_for_logprob = self.cfg["offload_optimizer_for_logprob"]
         self.max_grad_norm = self.cfg["max_grad_norm"]
 
         if self.cfg["precision"] == "float32":
@@ -175,6 +178,8 @@ class DTensorPolicyWorkerV2:
             )
             print(f"[Rank {self.rank}] Using FlashAttention2 for sequence packing")
 
+        hf_config_overrides = self.cfg.get("hf_config_overrides", {}) or {}
+
         model_config = AutoConfig.from_pretrained(
             model_name,
             # Always load the model in float32 to keep master weights in float32.
@@ -187,6 +192,7 @@ class DTensorPolicyWorkerV2:
             attn_implementation="flash_attention_2"
             if self.enable_seq_packing
             else None,
+            **hf_config_overrides,
         )
 
         self.allow_flash_attn_args = self.check_model_allow_flash_attn_args(
@@ -281,6 +287,10 @@ class DTensorPolicyWorkerV2:
             print(
                 "[WARNING]: sequence_parallel=True, but tp_size=1 which has no effect. Enable tp_size > 1 to use sequence parallelism."
             )
+        elif sequence_parallel_enabled and tp_size > 1:
+            raise RuntimeError(
+                "Sequence parallel + tp_size >1 is currently broken in torch==2.8.0. See https://github.com/NVIDIA-NeMo/Automodel/issues/652 for more details."
+            )
 
         if cp_size > 1:
             assert not isinstance(self.model, Gemma3ForCausalLM), (
@@ -303,12 +313,19 @@ class DTensorPolicyWorkerV2:
         dp_replicate_size = 1
         dp_shard_size = dp_size
 
+        # torch==2.8 uses LOCAL_RANK to set the device here (https://github.com/pytorch/pytorch/blob/ba56102387ef21a3b04b357e5b183d48f0afefc7/torch/distributed/device_mesh.py#L500),
+        # but CUDA_VISIBLE_DEVICES is set to only 1 gpu, so we need to temporarily set LOCAL_RANK to 0.
+        # TODO: consider changing the default LOCAL_RANK set in worker_groups.py
+        prev_local_rank = os.environ["LOCAL_RANK"]
+        os.environ["LOCAL_RANK"] = "0"
+
         # Create device mesh with HSDP structure for FSDP2 compatibility
         device_mesh = torch.distributed.device_mesh.init_device_mesh(
             "cuda",
             (dp_replicate_size, dp_shard_size, cp_size, tp_size),
             mesh_dim_names=("dp_replicate", "dp_shard", "cp", "tp"),
         )
+        os.environ["LOCAL_RANK"] = prev_local_rank
 
         # Create flattened submeshes for different use cases
         # Flatten dp_replicate + dp_shard for the "dp" dimension (backward compatibility)
@@ -450,31 +467,22 @@ class DTensorPolicyWorkerV2:
                 "No weights path provided. Starting from scratch (default policy init)"
             )
 
-        # vars used for refit
-        ## will be initialized in prepare_refit_info
-        self.refit_param_info = None
-        ## used for streaming update inference engine weights
-        self._held_sharded_state_dict_reference: Optional[dict[str, torch.Tensor]] = (
-            None
-        )
-        self._held_streamed_param_reference: Optional[dict[str, torch.Tensor]] = None
-
     def _apply_temperature_scaling(self, logits: torch.Tensor) -> torch.Tensor:
         if "generation" in self.cfg and self.cfg["generation"] is not None:
             logits.div_(self.cfg["generation"]["temperature"])
         return logits
 
-    def init_collective(self, ip: str, port: int, world_size: int) -> None:
-        """Initialize the collective communication."""
+    def init_collective(
+        self, ip: str, port: int, world_size: int, *, train_world_size: int
+    ) -> None:
         from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
         from vllm.distributed.utils import StatelessProcessGroup
 
-        if self.rank == 0:
-            pg = StatelessProcessGroup.create(
-                host=ip, port=port, rank=0, world_size=world_size
-            )
-            device = torch.cuda.current_device()
-            self.model_update_group = PyNcclCommunicator(pg, device=device)
+        pg = StatelessProcessGroup.create(
+            host=ip, port=port, rank=self.rank, world_size=world_size
+        )
+        device = torch.cuda.current_device()
+        self.model_update_group = PyNcclCommunicator(pg, device=device)
 
     def is_alive(self) -> bool:
         return True
@@ -665,6 +673,9 @@ class DTensorPolicyWorkerV2:
                         )
                         if len(vlm_kwargs) > 0:
                             position_ids = None
+                            assert not self.cfg["dtensor_cfg"]["sequence_parallel"], (
+                                "Sequence parallel is not supported with multimodal since there's an issue when you do not pass position_ids. See https://github.com/NVIDIA-NeMo/Automodel/issues/652"
+                            )
 
                     context_parallel_ctx = None
                     if self.cp_size > 1:
@@ -1666,99 +1677,75 @@ class DTensorPolicyWorkerV2:
         # Get device UUID using NVML
         return get_device_uuid(device_idx)
 
+    def get_zmq_address(self):
+        """Get the ZMQ address for the current device."""
+        return f"ipc:///tmp/{self.report_device_id()}.sock"
+
+    def maybe_init_zmq(self):
+        """Initialize the ZMQ socket if it doesn't exist."""
+        if not hasattr(self, "zmq_socket"):
+            self.zmq_context = zmq.Context()
+            self.zmq_socket = self.zmq_context.socket(zmq.REQ)
+            self.zmq_socket.setsockopt(
+                zmq.SNDTIMEO, 120000
+            )  # set timeout to 120 seconds
+            self.zmq_socket.setsockopt(
+                zmq.RCVTIMEO, 120000
+            )  # set timeout to 120 seconds
+            self.zmq_socket.setsockopt(zmq.LINGER, 0)
+            self.zmq_socket.bind(self.get_zmq_address())
+
     @torch.no_grad()
     def prepare_refit_info(self) -> Optional[dict[str, Any]]:
-        state_dict = self.model.state_dict()
+        """Prepare state dict metadata for weight refitting and IPC streaming."""
+        state_dict_info = {}
+        for name, tensor in self.model.state_dict().items():
+            # all tensor will be casted to self.dtype in stream_weights_via_ipc_zmq/broadcast_weights_for_collective
+            state_dict_info[name] = (tensor.shape, self.dtype)
 
-        if self.is_generation_colocated:
-            # Collect info for streaming multiple tensors
-            self.refit_param_info = []
-            for name, tensor in state_dict.items():
-                # dtensor's numel will return complete tensor instead of only local tensor
-                size_in_bytes = tensor.element_size() * tensor.numel()
-                self.refit_param_info.append((name, size_in_bytes))
+        return state_dict_info
 
-        else:
-            # Collect info for collective communication
-            state_dict_info = {}
-            for name, tensor in state_dict.items():
-                state_dict_info[name] = (tensor.shape, self.dtype)
-
-            return state_dict_info
-
-    @torch.no_grad()
-    def prepare_weights_for_ipc(self) -> tuple[list[tuple[str, int]], float]:
-        """Prepare the weights for IPC.
-
-        This function:
-        - Prepares the state_dict of the model.
-        - Collects the info for streaming multiple tensors.
-
-        Returns:
-            list: The list of parameters sizes.
-            float: The total available memory in bytes.
-        """
+    def get_free_memory_bytes(self) -> int:
+        """Get the available free memory."""
         from nemo_rl.utils.nvml import get_free_memory_bytes
 
+        device_idx = torch.cuda.current_device()
+        return get_free_memory_bytes(device_idx)
+
+    @torch.no_grad()
+    @wrap_with_nvtx_name("dtensor_policy_worker_v2/stream_weights_via_ipc_zmq")
+    def stream_weights_via_ipc_zmq(self, buffer_size_bytes: int = 0) -> None:
+        """Stream model weights to peer process via ZMQ IPC socket."""
+        self.maybe_init_zmq()
         # Manually move model to cuda for cpu offload case
         if self.cpu_offload:
             self.model = self.move_to_cuda(self.model)
 
-        # Get state_dict
-        self._held_sharded_state_dict_reference: dict[str, torch.Tensor] = (
-            self.model.state_dict()
+        from nemo_rl.models.policy.utils import stream_weights_via_ipc_zmq_impl
+
+        def dtensor_params_generator():
+            """Generator that yields (name, tensor) pairs, converting DTensors to local tensors."""
+            for name, tensor in self.model.state_dict().items():
+                if isinstance(tensor, DTensor):
+                    # Convert DTensor to full tensor for streaming
+                    full_tensor = tensor.full_tensor()
+                    # Convert to target dtype
+                    yield (
+                        name,
+                        full_tensor.to(self.dtype, non_blocking=True).contiguous(),
+                    )
+                else:
+                    # Convert to target dtype
+                    yield name, tensor.to(self.dtype, non_blocking=True).contiguous()
+
+        # Use the shared implementation
+        stream_weights_via_ipc_zmq_impl(
+            params_generator=dtensor_params_generator(),
+            buffer_size_bytes=buffer_size_bytes,
+            zmq_socket=self.zmq_socket,
+            rank=self.rank,
+            worker_name=str(self),
         )
-
-        # Collect current available memory for refit
-        ## Get current device index from torch
-        device_idx = torch.cuda.current_device()
-        ## Get device free memory using NVML
-        total_available_bytes = get_free_memory_bytes(device_idx)
-        ## Use 80% of the free memory for safety
-        memory_ratio = os.getenv("NRL_REFIT_BUFFER_MEMORY_RATIO", "0.8")
-        total_available_bytes *= float(memory_ratio)
-
-        return self.refit_param_info, total_available_bytes
-
-    @torch.no_grad()
-    @wrap_with_nvtx_name("dtensor_policy_worker_v2/get_weights_ipc_handles")
-    def get_weights_ipc_handles(self, keys: Iterable[str]) -> dict[str, Any]:
-        assert self._held_sharded_state_dict_reference is not None, (
-            "prepare_weights_for_ipc must be called before get_weights_ipc_handles"
-        )
-
-        # Clean up the held tensors to reduce peak memory
-        if self._held_streamed_param_reference is not None:
-            del self._held_streamed_param_reference
-            self._held_streamed_param_reference = None
-
-        converted_params = {}
-        for key in keys:
-            # Get full_tensor for dtensor (GPU > 1)
-            tensor = self._held_sharded_state_dict_reference[key]
-            if isinstance(tensor, DTensor):
-                full_tensor = tensor.full_tensor()
-            else:
-                full_tensor = tensor
-            # Convert parameters to the configured dtype
-            converted_params[key] = full_tensor.to(self.dtype, non_blocking=True)
-
-        # Temporary record the full tensor for cleanup
-        # It is needed for cleanup the last full_tensor in the refit process
-        self._held_streamed_param_reference = converted_params
-
-        # Get device UUID for IPC
-        device_uuid = self.report_device_id()
-        # Create handles for the tensors
-        all_handles = []
-        for key, p in converted_params.items():
-            handle = get_handle_from_tensor(p)
-            all_handles.append((key, handle))
-
-        # (pack_tensor_for_ipc: bool, handles: list)
-        serialized = (False, all_handles)
-
-        return {device_uuid: serialized}
 
     @torch.no_grad()
     def broadcast_weights_for_collective(self) -> None:
@@ -1771,13 +1758,21 @@ class DTensorPolicyWorkerV2:
             )
             self.model = self.move_to_cuda(self.model)
 
-        # Broadcast the weights for collective communication
-        for _, tensor in self.model.state_dict().items():
+        def _dtensor_post_iter_func(tensor, dtype):
             if isinstance(tensor, DTensor):
                 tensor = tensor.full_tensor()
-            if self.rank == 0:
-                tensor = tensor.to(self.dtype, non_blocking=True)
-                self.model_update_group.broadcast(tensor.data, src=0)
+            tensor = tensor.to(dtype, non_blocking=True)
+            return tensor
+
+        # param_iterator will return (name, tensor), we only need tensor
+        dtensor_post_iter_func = lambda x: _dtensor_post_iter_func(x[1], self.dtype)
+
+        packed_broadcast_producer(
+            iterator=iter(self.model.state_dict().items()),
+            group=self.model_update_group,
+            src=0,
+            post_iter_func=dtensor_post_iter_func,
+        )
 
         # Manually move model to cpu for cpu offload case
         # cpu offload needs model on CPU before model forward
@@ -1786,13 +1781,21 @@ class DTensorPolicyWorkerV2:
 
     @wrap_with_nvtx_name("dtensor_policy_worker_v2/prepare_for_lp_inference")
     def prepare_for_lp_inference(self) -> None:
+        # onload model to cuda
         if not self.cpu_offload:
             self.move_to_cuda(self.model)
         else:
             self.model = self.move_buffer_to_device(self.model, "cuda")
 
         self.model.eval()
-        self.offload_before_refit()
+
+        # offload optimizer to cpu
+        torch.randn(1).cuda()  # wake up torch allocator
+        if self.optimizer is not None and self.offload_optimizer_for_logprob:
+            self.move_optimizer_to_device("cpu")
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     @wrap_with_nvtx_name("dtensor_policy_worker_v2/prepare_for_training")
     def prepare_for_training(self, *args, **kwargs) -> None:
@@ -1806,15 +1809,13 @@ class DTensorPolicyWorkerV2:
 
         self.model.train()
         # Move optimizer state to CUDA if it exists
+        # colocated generation will always offload optimizer to cuda before refit
         if (
-            hasattr(self, "optimizer")
-            and self.optimizer is not None
+            self.optimizer is not None
             and not self.cpu_offload
+            and (self.offload_optimizer_for_logprob or self.is_generation_colocated)
         ):
-            for state in self.optimizer.state.values():
-                for k, v in state.items():
-                    if isinstance(v, (DTensor, torch.Tensor)):
-                        state[k] = v.to("cuda")
+            self.move_optimizer_to_device("cuda")
 
         torch.cuda.empty_cache()
 
@@ -1823,11 +1824,8 @@ class DTensorPolicyWorkerV2:
     def offload_before_refit(self) -> None:
         """Offload the optimizer to the CPU."""
         torch.randn(1).cuda()  # wake up torch allocator
-        if hasattr(self, "optimizer") and self.optimizer is not None:
-            for state in self.optimizer.state.values():
-                for k, v in state.items():
-                    if isinstance(v, (DTensor, torch.Tensor)):
-                        state[k] = v.to("cpu")
+        if self.optimizer is not None:
+            self.move_optimizer_to_device("cpu")
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -1835,22 +1833,11 @@ class DTensorPolicyWorkerV2:
     @torch.no_grad()
     @wrap_with_nvtx_name("dtensor_policy_worker_v2/offload_after_refit")
     def offload_after_refit(self) -> None:
-        # Offload as much as possible on the CPU
+        """Offload as much as possible on the CPU."""
         self.model = self.move_to_cpu(self.model)
         self.model.eval()
         torch.randn(1).cuda()  # wake up torch allocator
         self.offload_before_refit()  # rerun the old offload function
-
-        # Clean up the held tensors
-        if self._held_sharded_state_dict_reference is not None:
-            del self._held_sharded_state_dict_reference
-            self._held_sharded_state_dict_reference = None
-        if self._held_streamed_param_reference is not None:
-            del self._held_streamed_param_reference
-            self._held_streamed_param_reference = None
-
-        gc.collect()
-        torch.cuda.empty_cache()
 
         # Print memory stats after offloading
         allocated = torch.cuda.memory_allocated() / (1024**3)  # Convert to GB
@@ -1858,6 +1845,12 @@ class DTensorPolicyWorkerV2:
         print(
             f"GPU Memory after optimizer offload: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved"
         )
+
+    def move_optimizer_to_device(self, device: str | torch.device) -> None:
+        for state in self.optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, (DTensor, torch.Tensor)):
+                    state[k] = v.to(device)
 
     def move_to_device(self, model: nn.Module, device: str | torch.device) -> nn.Module:
         model = self.move_buffer_to_device(model, device)
@@ -1941,6 +1934,10 @@ class DTensorPolicyWorkerV2:
 
     def shutdown(self) -> None:
         """Shutdown the policy."""
+        # Clean up extension resources like ZMQ sockets
+        if hasattr(self, "zmq_socket"):
+            self.zmq_socket.close()
+            self.zmq_context.term()
 
     def start_gpu_profiling(self) -> None:
         """Start GPU profiling."""
@@ -1949,3 +1946,9 @@ class DTensorPolicyWorkerV2:
     def stop_gpu_profiling(self) -> None:
         """Stop GPU profiling."""
         torch.cuda.profiler.stop()
+
+    def report_node_ip_and_gpu_id(self) -> list[tuple[str, int]]:
+        """Report the node IP and GPU ID of the current worker."""
+        ip = ray._private.services.get_node_ip_address()
+        gpu_id = ray.get_gpu_ids()[0]
+        return (ip, gpu_id)
