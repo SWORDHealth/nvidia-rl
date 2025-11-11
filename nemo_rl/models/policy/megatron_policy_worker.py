@@ -499,7 +499,12 @@ class MegatronPolicyWorker:
         # Set for rank for non-collocated to check which ranks to broadcast from
         self.rank = get_rank_safe()
         # Need to initialize the process group before calling into Megatron-Bridge, otherwise Megatron-Bridge will try to set an incorrect device
-        torch.distributed.init_process_group("nccl")
+        import datetime
+        timeout_minutes = int(os.getenv("TORCH_DISTRIBUTED_TIMEOUT_MINUTES", "60"))
+        torch.distributed.init_process_group(
+            backend="nccl",
+            timeout=datetime.timedelta(minutes=timeout_minutes)
+        )
         if pt_checkpoint_exists:
             print(f"Checkpoint already exists at {pretrained_path}. Skipping import.")
         else:

@@ -3,7 +3,7 @@
 # 1. SET UP DISTRIBUTED ENVIRONMENT VARIABLES FOR SLURM
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_PORT=29400
-export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1)
+export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1, 2, 3)
 
 # This variable holds the number of GPUs per node
 GPUS_PER_NODE=8
@@ -58,6 +58,26 @@ export NCCL_IB_HCA=mlx5
 export NCCL_NET=IB
 export NCCL_SOCKET_IFNAME=eth0
 
+# NCCL Timeout and Reliability Settings
+export NCCL_IB_TIMEOUT=22                    # InfiniBand timeout (default: 20)
+export NCCL_IB_RETRY_CNT=7                   # Retry count (default: 7)
+export NCCL_TIMEOUT_US=1800000000           # 30 minutes in microseconds
+export NCCL_ASYNC_ERROR_HANDLING=1          # Enable async error handling
+export NCCL_BLOCKING_WAIT=1                 # Use blocking waits
+export NCCL_CUMEM_ENABLE=0                  # Disable CUDA memory pools for stability
+
+# PyTorch Distributed Timeout Settings
+export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=1800  # 30 minutes in seconds (fixed from 180000)
+export TORCH_NCCL_BLOCKING_WAIT=1               # Use blocking waits in PyTorch
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1        # Enable async error handling in PyTorch
+
+# Debug: Print timeout settings
+echo "=== TIMEOUT DEBUG INFO ==="
+echo "  TORCH_DISTRIBUTED_DEFAULT_TIMEOUT: $TORCH_DISTRIBUTED_DEFAULT_TIMEOUT"
+echo "  NCCL_TIMEOUT_US: $NCCL_TIMEOUT_US"
+echo "  NCCL_IB_TIMEOUT: $NCCL_IB_TIMEOUT"
+echo "=========================="
+
 HOSTNAME_SHORT=$(hostname -s)
 export RAY_TMPDIR="/tmp/ray/ray_${USER}_${SLURM_JOB_ID}_${NODE_RANK}"
 mkdir -p "$RAY_TMPDIR"
@@ -84,7 +104,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     # Wait for worker to connect
     echo "Waiting for worker nodes to connect..."
-    sleep 20
+    sleep 30
 
 else
     echo "=== Starting Ray WORKER node ==="
@@ -99,23 +119,23 @@ fi
 
 # 5. EXECUTE THE TRAINING JOB (only on head node)
 if [ "$NODE_RANK" -eq 0 ]; then
-    echo "=== Starting NeMo RL DPO Training ==="
+    echo "=== Starting NeMo RL SFT Training ==="
 
     # Create a detailed log with timestamps and node info
     LOG_DIR="/home/pmartins/nemo-rl/slurm_logs/$(date +%Y%m%d)"
     mkdir -p "$LOG_DIR"
-    LOG_FILE="$LOG_DIR/dpo_qwen30ba3b_mind_node_${NODE_RANK}_$(date +%H%M%S).log"
+    LOG_FILE="$LOG_DIR/training_qwen235ba22b_thinking_mind_expert_node_${NODE_RANK}_$(date +%H%M%S).log"
 
-    echo "📊 Starting DPO training on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
+    echo "📊 Starting training on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
 
     # Run with detailed logging and real-time output
-    uv run python examples/run_dpo.py \
-        --config examples/configs/recipes/llm/dpo-qwen30ba3b-mind.yaml \
+    uv run python examples/run_sft.py \
+        --config examples/configs/recipes/llm/sft-mind-qwen235ba22b-thinking-mind-expert.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?
 
-    echo "=== DPO training completed with exit code $TRAINING_EXIT_CODE ==="
+    echo "=== Training completed with exit code $TRAINING_EXIT_CODE ==="
 
     # Shutdown Ray cluster
     echo "=== Shutting down Ray cluster ==="

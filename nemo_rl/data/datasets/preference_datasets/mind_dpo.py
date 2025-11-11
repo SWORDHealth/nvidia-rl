@@ -14,7 +14,7 @@
 from typing import Any
 
 from absl import logging
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 
 from nemo_rl.data.interfaces import TaskDataSpec
 
@@ -40,23 +40,12 @@ def to_preference_data_format(
 class MindDPODataset:
 
     def __init__(self, dataset_name: str, val_split_ratio: float = 0.01) -> None:
-        ds = load_dataset(dataset_name)['train']
-
-        # Create train/val split
-        split_dataset = ds.train_test_split(test_size=val_split_ratio, seed=42)
-        train_ds = split_dataset['train']
-        val_ds = split_dataset['test']
-
-        # Apply data format transformation
-        train_ds = train_ds.map(to_preference_data_format, remove_columns=train_ds.column_names)
-        val_ds = val_ds.map(to_preference_data_format, remove_columns=val_ds.column_names)
-
-        # store the formatted dataset
-        self.formatted_ds = {
-            "train": train_ds,
-            "validation": val_ds,
-        }
+        if 'swordhealth/' in dataset_name:
+            ds = load_dataset(dataset_name)
+        else:
+            ds = load_from_disk(dataset_name)
+        self.formatted_ds = ds.map(to_preference_data_format)
 
         self.task_spec = TaskDataSpec(
-            task_name="MindDPO",
-            )
+            task_name="PreferenceDataset",
+        )

@@ -118,6 +118,7 @@ policy:
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
   shuffle: true
+  num_workers: 1
   dataset_name: swordhealth/Transcript-Data-RM-0210
   data_cls: mind
 
@@ -126,6 +127,7 @@ logger:
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
+  swanlab_enabled: false
   monitor_gpus: true
   wandb:
     project: "rm-dev"

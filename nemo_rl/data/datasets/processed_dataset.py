@@ -94,6 +94,11 @@ class AllTaskProcessedDataset:
         entry = self.dataset[idx]
 
         if isinstance(self.task_data_processors, dict):
+            # Handle case where task_name might be missing due to transformation issues
+            if "task_name" not in entry:
+                entry = dict(entry)  # Make a copy to avoid modifying the original
+                entry["task_name"] = "mind"
+
             task_name = entry["task_name"]
 
             assert task_name in self.task_data_processors, (

@@ -180,8 +180,11 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig):
         val_dataset = None
     elif data_cls == 'mind':
         data = MindDPODataset(dataset_name=data_config["dataset_name"])
-        train_dataset = data.formatted_ds["train"]
-        val_dataset = data.formatted_ds["validation"]
+        if 'swordhealth/' in data_config["dataset_name"]:
+            train_dataset = data.formatted_ds["train"]
+        else:
+            train_dataset = data.formatted_ds
+        val_dataset = None #data.formatted_ds["validation"]
     else:
         raise ValueError(
             f"Unknown dataset class: {data_cls}. Supported datasets are: PreferenceDataset, HelpSteer3, Tulu3Preference, and DPODataset (deprecated)."

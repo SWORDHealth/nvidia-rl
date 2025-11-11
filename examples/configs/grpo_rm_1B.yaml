@@ -1,5 +1,5 @@
 # GRPO Algorithm Configuration
-defaults: "grpo_math_1B.yaml"
+defaults: "../../grpo_math_1B.yaml"
 
 env:
   reward_model:  

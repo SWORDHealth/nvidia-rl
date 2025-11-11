@@ -3,7 +3,7 @@
 # 2 nodes with 8 GPUs each
 
 #SBATCH --job-name=nemo-rl-dpo-mind-qwen30ba3b
-#SBATCH --nodes=4
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128
@@ -125,7 +125,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     # Run with detailed logging and real-time output
     uv run python examples/run_dpo.py \
-        --config examples/configs/recipes/llm/dpo-megatron-qwen30ba3b-mind.yaml \
+        --config examples/configs/recipes/llm/dpo-qwen30ba3b-mind.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?

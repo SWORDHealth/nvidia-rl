@@ -3,7 +3,7 @@
 # 1. SET UP DISTRIBUTED ENVIRONMENT VARIABLES FOR SLURM
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_PORT=29400
-export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1)
+export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1, 2, ..., 7)
 
 # This variable holds the number of GPUs per node
 GPUS_PER_NODE=8
@@ -82,9 +82,9 @@ if [ "$NODE_RANK" -eq 0 ]; then
     uv run ray start --head --disable-usage-stats
     echo "Ray head started successfully"
 
-    # Wait for worker to connect
+    # Wait for worker nodes to connect
     echo "Waiting for worker nodes to connect..."
-    sleep 20
+    sleep 30  # Longer wait for 8 nodes
 
 else
     echo "=== Starting Ray WORKER node ==="
@@ -99,23 +99,23 @@ fi
 
 # 5. EXECUTE THE TRAINING JOB (only on head node)
 if [ "$NODE_RANK" -eq 0 ]; then
-    echo "=== Starting NeMo RL DPO Training ==="
+    echo "=== Starting NeMo RL GRPO Training with Reward Model ==="
 
     # Create a detailed log with timestamps and node info
     LOG_DIR="/home/pmartins/nemo-rl/slurm_logs/$(date +%Y%m%d)"
     mkdir -p "$LOG_DIR"
-    LOG_FILE="$LOG_DIR/dpo_qwen30ba3b_mind_node_${NODE_RANK}_$(date +%H%M%S).log"
+    LOG_FILE="$LOG_DIR/grpo_qwen30ba3b_mind_rm_node_${NODE_RANK}_$(date +%H%M%S).log"
 
-    echo "📊 Starting DPO training on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
+    echo "📊 Starting GRPO training with RM on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
 
     # Run with detailed logging and real-time output
-    uv run python examples/run_dpo.py \
-        --config examples/configs/recipes/llm/dpo-qwen30ba3b-mind.yaml \
+    uv run python examples/run_grpo_rm.py \
+        --config examples/configs/recipes/llm/grpo-qwen30ba3b-mind-rm.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?
 
-    echo "=== DPO training completed with exit code $TRAINING_EXIT_CODE ==="
+    echo "=== GRPO training completed with exit code $TRAINING_EXIT_CODE ==="
 
     # Shutdown Ray cluster
     echo "=== Shutting down Ray cluster ==="

@@ -25,11 +25,12 @@ from nemo_rl.algorithms.grpo import MasterConfig, grpo_train, setup
 from nemo_rl.algorithms.utils import get_tokenizer
 from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, load_response_dataset
+from nemo_rl.data.datasets.response_datasets.mind_grpo import MindGRPODataset
 from nemo_rl.data.interfaces import (
     TaskDataProcessFnCallable,
     TaskDataSpec,
 )
-from nemo_rl.data.processors import math_hf_data_processor
+from nemo_rl.data.processors import math_hf_data_processor, grpo_mind_preprocessor
 from nemo_rl.distributed.ray_actor_environment_registry import get_actor_python_env
 from nemo_rl.distributed.virtual_cluster import init_ray
 from nemo_rl.environments.interfaces import EnvironmentInterface
@@ -59,12 +60,7 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
 
     return args, overrides
 
-
-# ===============================================================================
-#                             Math Data Processor
-# ===============================================================================
 TokenizerType = PreTrainedTokenizerBase
-
 
 def setup_data(
     tokenizer: TokenizerType,
@@ -78,21 +74,43 @@ def setup_data(
     dict[str, EnvironmentInterface],
 ]:
     print("\n▶ Setting up data...")
-    task_name = "math"
-    reward_model_task_spec = TaskDataSpec(
-        task_name=task_name,
-        prompt_file=data_config["prompt_file"],
-        system_prompt_file=data_config["system_prompt_file"],
-    )
 
-    # load dataset
-    data: Any = load_response_dataset(data_config, seed)
+    data_cls = data_config.get("data_cls", data_config["dataset_name"])
 
-    # data processor
-    task_data_processors: dict[str, tuple[TaskDataSpec, TaskDataProcessFnCallable]] = (
-        defaultdict(lambda: (reward_model_task_spec, math_hf_data_processor))
-    )
-    task_data_processors[task_name] = (reward_model_task_spec, math_hf_data_processor)
+    if data_cls == "mind":
+        task_name = "mind"
+        reward_model_task_spec = TaskDataSpec(
+            task_name=task_name,
+        )
+
+        data = MindGRPODataset(dataset_name=data_config["dataset_name"])
+        train_data = data.formatted_ds["train"]
+        val_data = data.formatted_ds["validation"]
+
+        # data processor
+        task_data_processors: dict[str, tuple[TaskDataSpec, TaskDataProcessFnCallable]] = (
+            defaultdict(lambda: (reward_model_task_spec, grpo_mind_preprocessor))
+        )
+        task_data_processors[task_name] = (reward_model_task_spec, grpo_mind_preprocessor)
+
+    else:
+        task_name = "math"
+        reward_model_task_spec = TaskDataSpec(
+            task_name=task_name,
+            prompt_file=data_config["prompt_file"],
+            system_prompt_file=data_config["system_prompt_file"],
+        )
+
+        # load dataset
+        data: Any = load_response_dataset(data_config, seed)
+        train_data = data.formatted_ds["train"]
+        val_data = data.formatted_ds["validation"]
+
+        # data processor
+        task_data_processors: dict[str, tuple[TaskDataSpec, TaskDataProcessFnCallable]] = (
+            defaultdict(lambda: (reward_model_task_spec, math_hf_data_processor))
+        )
+        task_data_processors[task_name] = (reward_model_task_spec, math_hf_data_processor)
 
     reward_model_env = RewardModelEnvironment.options(  # type: ignore # it's wrapped with ray.remote
         runtime_env={
@@ -104,7 +122,7 @@ def setup_data(
     ).remote(env_configs["reward_model"])
 
     dataset = AllTaskProcessedDataset(
-        data.formatted_ds["train"],
+        train_data,
         tokenizer,
         reward_model_task_spec,
         task_data_processors,
@@ -112,9 +130,9 @@ def setup_data(
     )
 
     val_dataset: Optional[AllTaskProcessedDataset] = None
-    if data.formatted_ds["validation"]:
+    if val_data:
         val_dataset = AllTaskProcessedDataset(
-            data.formatted_ds["validation"],
+            val_data,
             tokenizer,
             reward_model_task_spec,
             task_data_processors,
@@ -132,11 +150,6 @@ def main() -> None:
     """Main entry point."""
     # Parse arguments
     args, overrides = parse_args()
-
-    if not args.config:
-        args.config = os.path.join(
-            os.path.dirname(__file__), "configs", "grpo_rm_1B.yaml"
-        )
 
     config = load_config(args.config)
     print(f"Loaded configuration from: {args.config}")
@@ -179,6 +192,26 @@ def main() -> None:
         val_task_to_env,
     ) = setup_data(tokenizer, config["data"], config["env"], config["grpo"]["seed"])
 
+    
+    # Print first 10 examples from training dataset for debugging
+    print("\n" + "="*80)
+    print("🔍 DEBUGGING: First 10 examples from training dataset:")
+    print("="*80)
+    for i in range(min(10, len(dataset))):
+        example = dataset[i]
+        print(f"\n--- Example {i} ---")
+        for key, value in example.items():
+            if key == "message_log":
+                print(f"  {key}: {len(value)} messages")
+                for j, msg in enumerate(value):
+                    content = msg.get('content', '')
+                    print(f"    Message {j}: role={msg.get('role', 'N/A')}")
+                    print(f"      content: {content}")
+            else:
+                print(f"  {key}: {value}")
+    print("="*80 + "\n")
+    
+    
     (
         policy,
         policy_generation,

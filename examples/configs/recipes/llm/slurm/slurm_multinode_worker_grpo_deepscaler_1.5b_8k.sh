@@ -3,7 +3,7 @@
 # 1. SET UP DISTRIBUTED ENVIRONMENT VARIABLES FOR SLURM
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_PORT=29400
-export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1)
+export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1, 2, 3)
 
 # This variable holds the number of GPUs per node
 GPUS_PER_NODE=8
@@ -40,18 +40,7 @@ export PYTHONPATH="/home/pmartins/nemo-rl/3rdparty/Megatron-Bridge-workspace/Meg
 # Set CUDA devices
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-# --- NCCL DEBUGGING (IMPROVED) ---
-# Create a dedicated directory for NCCL logs inside your main slurm_logs
-# NCCL_LOG_DIR="/home/pmartins/nemo-rl/slurm_logs/nccl_logs_${SLURM_JOB_ID}"
-# mkdir -p "$NCCL_LOG_DIR"
-
-# Set NCCL debug level and specify a UNIQUE, ABSOLUTE path for the log file
-# export NCCL_DEBUG=INFO
-# export NCCL_DEBUG_ALL
-# export NCCL_DEBUG_FILE="${NCCL_LOG_DIR}/nccl_debug_node${SLURM_NODEID}_$(hostname -s).log"
-# echo "  NCCL Log File: ${NCCL_DEBUG_FILE}"
-# --- END NCCL DEBUGGING ---
-
+# --- NCCL Configuration for high-performance inter-node communication ---
 export NCCL_P2P_LEVEL=NVL
 export NCCL_P2P_DISABLE=0
 export NCCL_IB_HCA=mlx5
@@ -82,9 +71,9 @@ if [ "$NODE_RANK" -eq 0 ]; then
     uv run ray start --head --disable-usage-stats
     echo "Ray head started successfully"
 
-    # Wait for worker to connect
+    # Wait for worker nodes to connect
     echo "Waiting for worker nodes to connect..."
-    sleep 20
+    sleep 30  # Wait for 4 nodes
 
 else
     echo "=== Starting Ray WORKER node ==="
@@ -99,23 +88,23 @@ fi
 
 # 5. EXECUTE THE TRAINING JOB (only on head node)
 if [ "$NODE_RANK" -eq 0 ]; then
-    echo "=== Starting NeMo RL DPO Training ==="
+    echo "=== Starting NeMo RL GRPO Training - DeepScaler 1.5B 8K ==="
 
     # Create a detailed log with timestamps and node info
     LOG_DIR="/home/pmartins/nemo-rl/slurm_logs/$(date +%Y%m%d)"
     mkdir -p "$LOG_DIR"
-    LOG_FILE="$LOG_DIR/dpo_qwen30ba3b_mind_node_${NODE_RANK}_$(date +%H%M%S).log"
+    LOG_FILE="$LOG_DIR/grpo_deepscaler_1.5b_8k_node_${NODE_RANK}_$(date +%H%M%S).log"
 
-    echo "📊 Starting DPO training on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
+    echo "📊 Starting GRPO training - DeepScaler 1.5B 8K on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
 
     # Run with detailed logging and real-time output
-    uv run python examples/run_dpo.py \
-        --config examples/configs/recipes/llm/dpo-qwen30ba3b-mind.yaml \
+    uv run python examples/run_grpo_math.py \
+        --config examples/configs/recipes/llm/grpo-deepscaler-1.5b-8K.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?
 
-    echo "=== DPO training completed with exit code $TRAINING_EXIT_CODE ==="
+    echo "=== GRPO training completed with exit code $TRAINING_EXIT_CODE ==="
 
     # Shutdown Ray cluster
     echo "=== Shutting down Ray cluster ==="

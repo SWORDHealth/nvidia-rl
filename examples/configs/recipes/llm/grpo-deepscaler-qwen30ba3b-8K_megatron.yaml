@@ -1,0 +1,70 @@
+defaults: ../../grpo_math_1B_megatron.yaml
+grpo:
+  num_prompts_per_step: 128
+  num_generations_per_prompt: 8
+  max_val_samples: 480
+  val_batch_size: 32
+checkpointing:
+  enabled: true
+  checkpoint_dir: "results/grpo_deepscaler_qwen30ba3b_8k_megatron"
+  keep_top_k: 10
+  model_save_format: null
+  save_period: 314
+loss_fn:
+  reference_policy_kl_penalty: 0.0  
+policy:
+  model_name: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_3010_bs16/step_210/hf/
+  train_global_batch_size: 64
+  train_micro_batch_size: 1
+  max_total_sequence_length: 8192
+  generation_batch_size: 64 
+  logprob_batch_size: 2
+  dtensor_cfg:
+    enabled: False
+  megatron_cfg:
+    enabled: true
+    empty_unused_memory_level: 1
+    converter_type: LlamaForCausalLM
+    tensor_model_parallel_size: 4
+    expert_tensor_parallel_size: 8
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    sequence_parallel: true
+    activation_checkpointing: true
+    defer_fp32_logits: true
+    optimizer:
+      lr: 2.0e-6
+      min_lr: 2.0e-6
+      weight_decay: 0.01
+      use_precision_aware_optimizer: true
+    scheduler:
+      lr_warmup_iters: 10
+      lr_warmup_init: 2.0e-08
+  sequence_packing:
+    enabled: false
+  optimizer:
+    kwargs:
+      lr: 2.0e-06
+  generation:
+    vllm_cfg:
+      tensor_parallel_size: 4
+      gpu_memory_utilization: 0.7
+    vllm_kwargs:
+      compilation_config:
+        use_inductor: false
+data:
+  dataset_name: DeepScaler
+env:
+  math:
+    num_workers: 16
+logger:
+  log_dir: logs_grpo/grpo-deepscaler-qwen30ba3b-8k-megatron
+  num_val_samples_to_print: 0
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: false
+cluster:
+  gpus_per_node: 8
+  num_nodes: 4

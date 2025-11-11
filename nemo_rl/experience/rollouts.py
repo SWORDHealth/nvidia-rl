@@ -84,6 +84,40 @@ def generate_responses(
 
     generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
 
+    
+    # Print first 10 examples using chat format for debugging
+    print("\n🤖 CHAT EXAMPLES (sync) - First 10:")
+    print("="*80)
+    for i in range(min(5, len(generated_texts))):
+        print(f"\nExample {i+1}:")
+        print("-" * 40)
+
+        # Print only the last 5 messages in the conversation history
+        messages = batch["message_log"][i]
+        last_5_messages = messages[-5:] if len(messages) > 5 else messages
+
+        if len(messages) > 5:
+            print("   ... (showing last 5 messages)")
+
+        for msg in last_5_messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+
+            if role == "user":
+                print(f"👤 USER: {content}")
+            elif role == "assistant":
+                print(f"🤖 ASSISTANT: {content}")
+            elif role == "system":
+                print(f"⚙️  SYSTEM: {content}")
+            else:
+                print(f"{role.upper()}: {content}")
+
+        # Print the newly generated response
+        print(f"🤖 ASSISTANT (NEW): {generated_texts[i]}")
+
+    print("="*80 + "\n")
+    
+
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
         zip(generated_texts, input_lengths, unpadded_sequence_lengths)
@@ -179,6 +213,13 @@ async def generate_responses_async(
         generated_ids.append(generated_part)
 
     generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+
+    # Print generated texts for debugging
+    print("\n🤖 GENERATED RESPONSES (async):")
+    print("="*60)
+    for i, text in enumerate(generated_texts):
+        print(f"Response {i}: {repr(text)}")
+    print("="*60 + "\n")
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(

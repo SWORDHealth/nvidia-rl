@@ -1,0 +1,112 @@
+sft:
+  max_num_epochs: 2
+  max_num_steps: 1000000
+  val_period: -1  # Disable validation
+  val_batches: 8
+  val_global_batch_size: 32
+  val_micro_batch_size: 1
+  val_at_start: false
+  seed: 42
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen235ba22b_thinking_mind_expert_dtensor_8k_2110
+  metric_name: val_loss
+  higher_is_better: false
+  keep_top_k: 20
+  save_period: 3
+  checkpoint_must_save_by: null
+  save_consolidated: true
+  model_save_format: safetensors
+
+policy:
+  model_name: "/mnt/data/shared/cache/hub/models--Qwen--Qwen3-235B-A22B-Thinking-2507/snapshots/6cbffae6d8e28b986a6b17bd36f42f9fa0f1f0a5/"
+  tokenizer:
+    name: ${policy.model_name}
+  train_global_batch_size: 512
+  train_micro_batch_size: 1
+  max_total_sequence_length: 8192
+  precision: bfloat16
+
+  dtensor_cfg:
+    enabled: true
+    tensor_parallel_size: 4
+    pipeline_parallel_size: 2
+    context_parallel_size: 1
+    expert_parallel_size: 32
+    sequence_parallel: false
+    use_fsdp: true
+    fsdp_sharding_strategy: "FULL_SHARD"
+    activation_checkpointing: true
+    compile_model: false
+    cpu_offload: false             
+    custom_parallel_plan: null     
+    clear_cache_every_n_steps: 10  
+
+  megatron_cfg:
+    enabled: false
+
+  dynamic_batching:
+    enabled: false
+
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
+    algorithm: "modified_first_fit_decreasing"
+    sequence_length_round: 64
+
+  make_sequence_length_divisible_by: ${policy.dtensor_cfg.tensor_parallel_size}
+  max_grad_norm: 1.0
+
+  optimizer:
+    name: "torch.optim.AdamW"
+    kwargs:
+      lr: 2e-5
+      weight_decay: 0.01
+      betas: [0.9, 0.98]
+      eps: 1e-8
+      # Required for DTensor
+      foreach: False
+      fused: False 
+
+  scheduler:
+    name: "torch.optim.lr_scheduler.CosineAnnealingLR"
+    kwargs:
+      T_max: 331
+      eta_min: 2.0e-6
+
+data:
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  dataset_name: "/mnt/data/pmartins/data/merged_datasets/Mind-SFT-v1-merged-0210"
+  data_cls: mind
+  prompt_file: null
+  split: "train"
+  add_bos: true
+  add_eos: true
+  add_generation_prompt: false
+  shuffle: true
+  num_workers: 8
+  seed: 42
+  only_unmask_final: true
+  roles_to_train_on: ["assistant"]
+
+logger:
+  log_dir: logs/sft_mind_qwen235ba22b_thinking_mind_expert_dtensor_8k_2110
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 0
+  wandb:
+    project: nemo-rl
+    name: sft_mind_qwen235ba22b_thinking_mind_expert_dtensor_8k_2110
+  tensorboard:
+    log_dir: sft_mind_qwen235ba22b_thinking_mind_expert_dtensor_8k_2110
+  gpu_monitoring:
+    collection_interval: 10
+    flush_interval: 10
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 4

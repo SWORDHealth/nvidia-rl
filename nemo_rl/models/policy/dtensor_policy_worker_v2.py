@@ -142,7 +142,12 @@ class DTensorPolicyWorkerV2:
 
         self.cfg = config
         # torch distributed init. Envars for rank, world_size, and master_addr and master_port are set from the ray remote call
-        torch.distributed.init_process_group(backend="nccl")
+        import datetime
+        timeout_minutes = int(os.getenv("TORCH_DISTRIBUTED_TIMEOUT_MINUTES", "60"))
+        torch.distributed.init_process_group(
+            backend="nccl",
+            timeout=datetime.timedelta(minutes=timeout_minutes)
+        )
         self.rank = torch.distributed.get_rank()
         world_size = torch.distributed.get_world_size()
         model_name = self.cfg["model_name"]

@@ -15,13 +15,99 @@
 """Contains data processors for evaluation."""
 
 from typing import Any, cast
+import warnings
 
 import torch
 from transformers import PreTrainedTokenizerBase
 
 from nemo_rl.data.interfaces import DatumSpec, LLMMessageLogType, TaskDataSpec
+from nemo_rl.data.llm_message_utils import get_formatted_message_log
+
 
 TokenizerType = PreTrainedTokenizerBase
+
+def grpo_mind_preprocessor(
+    datum_dict: dict[str, Any],
+    task_data_spec: TaskDataSpec,
+    tokenizer,
+    max_seq_length: int,
+    idx: int,
+) -> DatumSpec:
+
+    prompt = datum_dict["prompt"]
+
+    # Process conversation, handling generation prompt only for the last user message
+    if isinstance(prompt, list) and len(prompt) > 1:
+        # Handle multi-turn conversation
+        conversation_without_last = prompt[:-1]
+        last_message = prompt[-1]
+
+        # Process all messages except the last one normally
+        message_log = get_formatted_message_log(
+            conversation_without_last, tokenizer, task_data_spec, add_generation_prompt=False
+        )
+
+        # Handle the last message separately
+        if isinstance(last_message, dict) and last_message.get("role") == "user":
+            # This is a user message that needs a generation prompt
+            last_msg_formatted = tokenizer.apply_chat_template(
+                [last_message],
+                tokenize=False,
+                add_generation_prompt=True,
+                add_special_tokens=False,
+            )
+            # Remove premature <|im_end|> if it exists
+            if last_msg_formatted.endswith("<|im_end|>"):
+                last_msg_formatted = last_msg_formatted[:-10]  # Remove "<|im_end|>"
+
+            last_message_dict = {
+                "role": "user",
+                "content": last_msg_formatted,
+                "token_ids": tokenizer(
+                    last_msg_formatted, return_tensors="pt", add_special_tokens=False
+                )["input_ids"][0]
+            }
+            message_log.append(last_message_dict)
+        else:
+            # Last message is assistant, process normally
+            last_msg_log = get_formatted_message_log(
+                [last_message], tokenizer, task_data_spec, add_generation_prompt=False
+            )
+            message_log.extend(last_msg_log)
+    else:
+        # Single message or empty, process normally
+        message_log = get_formatted_message_log(
+            prompt, tokenizer, task_data_spec, add_generation_prompt=False
+        )
+
+    length = sum(len(m["token_ids"]) for m in message_log)
+
+    loss_multiplier = 1.0
+    if length > max_seq_length:
+        warnings.warn(
+            f"Sequence length {length} exceeds max_seq_length {max_seq_length}. Ignoring example."
+        )
+        # make smaller and mask out
+        for message in message_log:
+            message["token_ids"] = message["token_ids"][
+                : min(4, max_seq_length // len(message_log))
+            ]
+        
+        loss_multiplier = 0.0
+
+    output = {
+        "message_log": message_log,
+        "length": length,
+        "extra_env_info": None,
+        "loss_multiplier": loss_multiplier,
+        "idx": idx,
+    }
+
+    # Preserve task_name field if present in the input
+    if "task_name" in datum_dict:
+        output["task_name"] = datum_dict["task_name"]
+
+    return output
 
 
 # Example of a generic math data processor

@@ -1,0 +1,73 @@
+defaults: ../../grpo_math_1B_megatron.yaml
+grpo:
+  num_prompts_per_step: 128
+  num_generations_per_prompt: 8
+  max_val_samples: 480
+  val_batch_size: 32
+  async_grpo:
+    enabled: true 
+    max_trajectory_age_steps: 2
+checkpointing:
+  enabled: true
+  checkpoint_dir: "results/grpo_deepscaler_1.5b_8k_megatron_async"
+  keep_top_k: 10
+  model_save_format: null
+  save_period: 314
+loss_fn:
+  reference_policy_kl_penalty: 0.0  
+policy:
+  model_name: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+  train_global_batch_size: 64
+  train_micro_batch_size: 4
+  max_total_sequence_length: 8192
+  generation_batch_size: 64 
+  logprob_batch_size: 4
+  dtensor_cfg:
+    enabled: False
+  megatron_cfg:
+    enabled: true
+    empty_unused_memory_level: 1
+    converter_type: LlamaForCausalLM
+    pipeline_model_parallel_size: 1
+    activation_checkpointing: true
+    defer_fp32_logits: true
+    optimizer:
+      lr: 2.0e-6
+      min_lr: 2.0e-6
+      weight_decay: 0.01
+      use_precision_aware_optimizer: true
+    scheduler:
+      lr_warmup_iters: 10
+      lr_warmup_init: 2.0e-08
+  sequence_packing:
+    enabled: false
+  optimizer:
+    kwargs:
+      lr: 2.0e-06
+  generation:
+    vllm_cfg:
+      async_engine: true
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.7
+    vllm_kwargs:
+      compilation_config:
+        use_inductor: false
+    colocated:
+      enabled: true
+      resources:
+        gpus_per_node: 4
+data:
+  dataset_name: DeepScaler
+env:
+  math:
+    num_workers: 16
+logger:
+  log_dir: logs_grpo/grpo-deepscaler-1.5b-8k-megatron-async
+  num_val_samples_to_print: 0
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: false
+cluster:
+  gpus_per_node: 8

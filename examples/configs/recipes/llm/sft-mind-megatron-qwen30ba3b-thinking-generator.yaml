@@ -118,6 +118,7 @@ data:
   add_eos: true
   add_generation_prompt: false
   shuffle: true
+  num_workers: 1
   seed: 42
   only_unmask_final: false
   roles_to_train_on: ["assistant"]
@@ -127,6 +128,7 @@ logger:
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
+  swanlab_enabled: false
   monitor_gpus: true
   num_val_samples_to_print: 0
   wandb:
