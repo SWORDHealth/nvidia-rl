@@ -123,7 +123,7 @@ def generate_responses(
         print(f"🤖 ASSISTANT (NEW): {generated_texts[i]}")
 
     print("="*80 + "\n")
-    
+        
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
@@ -220,12 +220,14 @@ async def generate_responses_async(
 
     generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
 
+    """
     # Print generated texts for debugging
     print("\n🤖 GENERATED RESPONSES (async):")
     print("="*60)
     for i, text in enumerate(generated_texts):
         print(f"Response {i}: {repr(text)}")
     print("="*60 + "\n")
+    """
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(

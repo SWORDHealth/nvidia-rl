@@ -27,17 +27,18 @@ from nemo_rl.algorithms.grpo import MasterConfig, grpo_train, setup
 from nemo_rl.algorithms.utils import get_tokenizer
 from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, load_response_dataset
+from nemo_rl.data.datasets.response_datasets.mind_grpo import MindGRPODataset
 from nemo_rl.data.interfaces import (
     TaskDataProcessFnCallable,
     TaskDataSpec,
 )
-from nemo_rl.data.processors import math_hf_data_processor
+from nemo_rl.data.processors import grpo_mind_preprocessor
 from nemo_rl.distributed.ray_actor_environment_registry import (
     get_actor_python_env,
 )
 from nemo_rl.distributed.virtual_cluster import init_ray
 from nemo_rl.environments.interfaces import EnvironmentInterface
-from nemo_rl.environments.math_environment import MathEnvironment
+from nemo_rl.environments.mind_verifiable_environment import MindVerifiableEnvironment
 from nemo_rl.models.generation import configure_generation_config
 from nemo_rl.utils.config import load_config, parse_hydra_overrides
 from nemo_rl.utils.logger import get_next_experiment_dir
@@ -64,7 +65,7 @@ def format_duration(seconds: float) -> str:
 
 def parse_args() -> tuple[argparse.Namespace, list[str]]:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Run GRPO training with configuration")
+    parser = argparse.ArgumentParser(description="Run GRPO training with mind verifiable environment")
     parser.add_argument(
         "--config", type=str, default=None, help="Path to YAML config file"
     )
@@ -76,7 +77,7 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
 
 
 # ===============================================================================
-#                             Math Data Processor
+#                             Mind Verifiable Data Setup
 # ===============================================================================
 TokenizerType = PreTrainedTokenizerBase
 
@@ -92,54 +93,57 @@ def setup_data(
     dict[str, EnvironmentInterface],
     dict[str, EnvironmentInterface],
 ]:
-    print("\n▶ Setting up data...")
-    math_task_spec = TaskDataSpec(
-        task_name="math",
-        prompt_file=data_config["prompt_file"],
-        system_prompt_file=data_config["system_prompt_file"],
+    print("\n▶ Setting up data for mind verifiable environment...")
+
+    # Use mind task for mind verifiable environment
+    task_name = "mind"
+    mind_task_spec = TaskDataSpec(
+        task_name=task_name,
     )
 
-    # load dataset
-    data: Any = load_response_dataset(data_config, seed)
+    # Load mind dataset
+    data = MindGRPODataset(dataset_name=data_config["dataset_name"])
+    train_data = data.formatted_ds["train"]
+    val_data = data.formatted_ds["validation"]
 
-    # data processor
+    # Data processor for mind tasks
     task_data_processors: dict[str, tuple[TaskDataSpec, TaskDataProcessFnCallable]] = (
-        defaultdict(lambda: (math_task_spec, math_hf_data_processor))
+        defaultdict(lambda: (mind_task_spec, grpo_mind_preprocessor))
     )
-    task_data_processors["math"] = (math_task_spec, math_hf_data_processor)
+    task_data_processors[task_name] = (mind_task_spec, grpo_mind_preprocessor)
 
-    # setup math environment
-    math_env = MathEnvironment.options(  # type: ignore # it's wrapped with ray.remote
+    # Setup mind verifiable environment
+    mind_env = MindVerifiableEnvironment.options(  # type: ignore # it's wrapped with ray.remote
         runtime_env={
             "py_executable": get_actor_python_env(
-                "nemo_rl.environments.math_environment.MathEnvironment"
+                "nemo_rl.environments.mind_verifiable_environment.MindVerifiableEnvironment"
             ),
             "env_vars": dict(os.environ),  # Pass thru all user environment variables
         }
-    ).remote(env_configs["math"])
+    ).remote(env_configs["mind_verifiable"])
 
     dataset = AllTaskProcessedDataset(
-        data.formatted_ds["train"],
+        train_data,
         tokenizer,
-        math_task_spec,
+        mind_task_spec,
         task_data_processors,
         max_seq_length=data_config["max_input_seq_length"],
     )
 
     val_dataset: Optional[AllTaskProcessedDataset] = None
-    if data.formatted_ds["validation"]:
+    if val_data:
         val_dataset = AllTaskProcessedDataset(
-            data.formatted_ds["validation"],
+            val_data,
             tokenizer,
-            math_task_spec,
+            mind_task_spec,
             task_data_processors,
             max_seq_length=data_config["max_input_seq_length"],
         )
     else:
         val_dataset = None
 
-    task_to_env: dict[str, EnvironmentInterface] = defaultdict(lambda: math_env)
-    task_to_env["math"] = math_env
+    task_to_env: dict[str, EnvironmentInterface] = defaultdict(lambda: mind_env)
+    task_to_env[task_name] = mind_env
     return dataset, val_dataset, task_to_env, task_to_env
 
 
@@ -150,7 +154,7 @@ def main() -> None:
 
     if not args.config:
         args.config = os.path.join(
-            os.path.dirname(__file__), "configs", "grpo_math_1B.yaml"
+            os.path.dirname(__file__), "configs", "grpo_mind_verifiable.yaml"
         )
 
     config = load_config(args.config)
@@ -194,6 +198,24 @@ def main() -> None:
         val_task_to_env,
     ) = setup_data(tokenizer, config["data"], config["env"], config["grpo"]["seed"])
 
+    # Print first few examples from training dataset for debugging
+    print("\n" + "="*80)
+    print("🔍 DEBUGGING: First 5 examples from training dataset:")
+    print("="*80)
+    for i in range(min(5, len(dataset))):
+        example = dataset[i]
+        print(f"\n--- Example {i} ---")
+        for key, value in example.items():
+            if key == "message_log":
+                print(f"  {key}: {len(value)} messages")
+                for j, msg in enumerate(value):
+                    content = msg.get('content', '')
+                    print(f"    Message {j}: role={msg.get('role', 'N/A')}")
+                    print(f"      content: {content}")
+            else:
+                print(f"  {key}: {value}")
+    print("="*80 + "\n")
+
     (
         policy,
         policy_generation,
@@ -212,6 +234,7 @@ def main() -> None:
     start_datetime = datetime.now()
     print("=" * 80)
     print(f"🕐 Training started at: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("🧠 Using MindVerifiableEnvironment with custom reward functions")
     print("=" * 80)
 
     # Check if async mode is enabled
@@ -240,7 +263,7 @@ def main() -> None:
 
         from nemo_rl.algorithms.grpo import async_grpo_train
 
-        print("🚀 Running async GRPO training")
+        print("🚀 Running async GRPO training with mind verifiable environment")
 
         async_config = config["grpo"]["async_grpo"]
         # Run async GRPO training
@@ -260,7 +283,7 @@ def main() -> None:
             max_trajectory_age_steps=async_config["max_trajectory_age_steps"],
         )
     else:
-        print("🚀 Running synchronous GRPO training")
+        print("🚀 Running synchronous GRPO training with mind verifiable environment")
 
         # Run standard GRPO training
         grpo_train(
@@ -301,9 +324,10 @@ def main() -> None:
 
     # Write timing info to file
     with open(timing_file, "w") as f:
-        f.write("GRPO Training Timing Report\n")
+        f.write("GRPO Mind Verifiable Training Timing Report\n")
         f.write("=" * 50 + "\n")
         f.write(f"Config: {args.config}\n")
+        f.write(f"Environment: MindVerifiableEnvironment\n")
         f.write(f"Start time: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"End time:   {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Duration:   {format_duration(total_duration)}\n")
@@ -318,8 +342,13 @@ def main() -> None:
             f.write(f"In-flight updates:  {config['grpo']['async_grpo'].get('in_flight_weight_updates', False)}\n")
         else:
             f.write("Mode:       Synchronous GRPO\n")
-
+            
     print(f"📝 Timing saved to: {timing_file}")
+
+    # Shutdown environments
+    for task_name in val_task_to_env.keys():
+        env = val_task_to_env[task_name]
+        env.shutdown.remote()
 
 
 if __name__ == "__main__":

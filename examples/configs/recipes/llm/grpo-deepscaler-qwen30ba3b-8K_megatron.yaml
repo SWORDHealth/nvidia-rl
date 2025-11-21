@@ -4,6 +4,14 @@ grpo:
   num_generations_per_prompt: 8
   max_val_samples: 480
   val_batch_size: 32
+  val_period: 500
+  max_num_steps: 240
+  async_grpo:
+    enabled: true 
+    max_trajectory_age_steps: 2
+    in_flight_weight_updates: true
+    recompute_kv_cache_after_weight_updates: false
+
 checkpointing:
   enabled: true
   checkpoint_dir: "results/grpo_deepscaler_qwen30ba3b_8k_megatron"
@@ -11,7 +19,8 @@ checkpointing:
   model_save_format: null
   save_period: 314
 loss_fn:
-  reference_policy_kl_penalty: 0.0  
+  reference_policy_kl_penalty: 0.0
+  use_importance_sampling_correction: true
 policy:
   model_name: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_3010_bs16/step_210/hf/
   train_global_batch_size: 64
@@ -26,12 +35,12 @@ policy:
     empty_unused_memory_level: 1
     converter_type: LlamaForCausalLM
     tensor_model_parallel_size: 4
-    expert_tensor_parallel_size: 8
-    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: 1
+    expert_model_parallel_size: 8
     pipeline_model_parallel_size: 1
     sequence_parallel: true
-    activation_checkpointing: true
-    defer_fp32_logits: true
+    activation_checkpointing: false
+    defer_fp32_logits: false
     optimizer:
       lr: 2.0e-6
       min_lr: 2.0e-6
@@ -47,11 +56,18 @@ policy:
       lr: 2.0e-06
   generation:
     vllm_cfg:
-      tensor_parallel_size: 4
+      async_engine: true
+      tensor_parallel_size: 1
       gpu_memory_utilization: 0.7
     vllm_kwargs:
       compilation_config:
         use_inductor: false
+    colocated:
+      enabled: false
+      resources:
+        gpus_per_node: 8
+        num_nodes: 1
+      
 data:
   dataset_name: DeepScaler
 env:
@@ -67,4 +83,4 @@ logger:
   monitor_gpus: false
 cluster:
   gpus_per_node: 8
-  num_nodes: 4
+  num_nodes: 3

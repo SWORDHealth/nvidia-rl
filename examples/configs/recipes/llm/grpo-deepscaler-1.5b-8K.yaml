@@ -4,6 +4,9 @@ grpo:
   num_generations_per_prompt: 8
   max_val_samples: 480
   val_batch_size: 32
+  val_period: 500
+  max_num_steps: 240
+  
 loss_fn:
   reference_policy_kl_penalty: 0.0
 checkpointing:
@@ -11,7 +14,7 @@ checkpointing:
   checkpoint_dir: "results/grpo_deepscaler_1.5b_8k"
   keep_top_k: 10
   model_save_format: null
-  save_period: 314
+  save_period: 240
 policy:
   model_name: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
   train_global_batch_size: 64

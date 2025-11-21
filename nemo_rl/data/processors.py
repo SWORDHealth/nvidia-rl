@@ -36,6 +36,20 @@ def grpo_mind_preprocessor(
 
     prompt = datum_dict["prompt"]
 
+    def check_and_add_think_token(text: str) -> str:
+        """Check if the generation prompt contains a beginning think token, add if missing."""
+        if "<think>" not in text:
+            # Add think token if not present
+            text += "\n<think>\n"
+
+        return text
+
+    # Handle case where prompt is a simple string (e.g., math problem)
+    if isinstance(prompt, str):
+        # Convert string to user message format
+        prompt = prompt.replace('user: ', '')
+        prompt = [{"role": "user", "content": prompt}]
+
     # Process conversation, handling generation prompt only for the last user message
     if isinstance(prompt, list) and len(prompt) > 1:
         # Handle multi-turn conversation
@@ -60,6 +74,9 @@ def grpo_mind_preprocessor(
             if last_msg_formatted.endswith("<|im_end|>"):
                 last_msg_formatted = last_msg_formatted[:-10]  # Remove "<|im_end|>"
 
+            # Check and add think token if needed
+            last_msg_formatted = check_and_add_think_token(last_msg_formatted)
+
             last_message_dict = {
                 "role": "user",
                 "content": last_msg_formatted,
@@ -75,10 +92,35 @@ def grpo_mind_preprocessor(
             )
             message_log.extend(last_msg_log)
     else:
-        # Single message or empty, process normally
-        message_log = get_formatted_message_log(
-            prompt, tokenizer, task_data_spec, add_generation_prompt=False
-        )
+        # Single message or empty, process normally but check for think token if generation prompt needed
+        if isinstance(prompt, list) and len(prompt) == 1 and prompt[0].get("role") == "user":
+            # Single user message that needs generation prompt
+            last_msg_formatted = tokenizer.apply_chat_template(
+                prompt,
+                tokenize=False,
+                add_generation_prompt=True,
+                add_special_tokens=False,
+            )
+            # Remove premature <|im_end|> if it exists
+            if last_msg_formatted.endswith("<|im_end|>"):
+                last_msg_formatted = last_msg_formatted[:-10]  # Remove "<|im_end|>"
+
+            # Check and add think token if needed
+            last_msg_formatted = check_and_add_think_token(last_msg_formatted)
+
+            message_dict = {
+                "role": "user",
+                "content": last_msg_formatted,
+                "token_ids": tokenizer(
+                    last_msg_formatted, return_tensors="pt", add_special_tokens=False
+                )["input_ids"][0]
+            }
+            message_log = [message_dict]
+        else:
+            # Process normally without generation prompt
+            message_log = get_formatted_message_log(
+                prompt, tokenizer, task_data_spec, add_generation_prompt=False
+            )
 
     length = sum(len(m["token_ids"]) for m in message_log)
 
@@ -92,13 +134,22 @@ def grpo_mind_preprocessor(
             message["token_ids"] = message["token_ids"][
                 : min(4, max_seq_length // len(message_log))
             ]
-        
+
         loss_multiplier = 0.0
+
+    # Prepare extra_env_info with ground_truth and dataset type if present
+    extra_env_info = {}
+    if "ground_truth" in datum_dict:
+        extra_env_info["ground_truth"] = datum_dict["ground_truth"]
+    if "dataset" in datum_dict:
+        extra_env_info["dataset"] = datum_dict["dataset"]
+    if not extra_env_info:
+        extra_env_info = None
 
     output = {
         "message_log": message_log,
         "length": length,
-        "extra_env_info": None,
+        "extra_env_info": extra_env_info,
         "loss_multiplier": loss_multiplier,
         "idx": idx,
     }

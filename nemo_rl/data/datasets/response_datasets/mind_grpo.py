@@ -42,6 +42,15 @@ def to_response_data_format(
         else prompt,
         "task_name": "mind"
     }
+
+    # Preserve ground_truth if it exists
+    if "ground_truth" in data:
+        result["ground_truth"] = data["ground_truth"]
+
+    # Preserve dataset type if it exists (for routing math vs ifeval)
+    if "dataset" in data:
+        result["dataset"] = data["dataset"]
+
     return result
 
 

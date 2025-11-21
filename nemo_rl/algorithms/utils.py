@@ -14,6 +14,7 @@
 
 import math
 import random
+import time
 import warnings
 from functools import partial, wraps
 from typing import Optional
@@ -379,6 +380,7 @@ def print_performance_metrics(
     metrics: dict[str, float],
     timing_metrics: dict[str, float],
     master_config: dict,
+    training_start_time: float = None,
 ) -> dict[str, float]:
     """Print performance metrics for GRPO."""
 
@@ -511,6 +513,14 @@ def print_performance_metrics(
         number_of_samples_per_step / total_time / total_num_gpus
     )
 
+    # Wall clock throughput (samples per second since training started)
+    wall_clock_samples_per_sec_per_gpu = None
+    if training_start_time is not None:
+        wall_clock_elapsed_time = time.time() - training_start_time
+        wall_clock_samples_per_sec_per_gpu = (
+            number_of_samples_per_step / wall_clock_elapsed_time / total_num_gpus
+        )
+
     e2e_tokens_per_sec_per_gpu = (
         metrics["total_num_tokens"] / total_time / total_num_gpus
     )
@@ -533,6 +543,10 @@ def print_performance_metrics(
 
     print("  • Throughputs (per GPU):")
     print(f"    - E2E (Samples/sec/gpu): {e2e_samples_per_sec_per_gpu:.2f}")
+    if wall_clock_samples_per_sec_per_gpu is not None:
+        wall_clock_samples_per_sec = wall_clock_samples_per_sec_per_gpu * total_num_gpus
+        print(f"    - Wall Clock (Samples/sec/gpu): {wall_clock_samples_per_sec_per_gpu:.2f}")
+        print(f"    - Wall Clock (Samples/sec): {wall_clock_samples_per_sec:.2f}")
     print(f"    - E2E (Tokens/sec/gpu): {e2e_tokens_per_sec_per_gpu:.2f}")
     print(
         f"    - Policy Training (Tokens/sec/gpu): {policy_training_tokens_per_sec_per_gpu:.2f}"
@@ -598,21 +612,28 @@ def print_performance_metrics(
     # Logging
     # =====================================================
 
-    performance_metrics.update(
-        {
-            "samples_per_sec": e2e_samples_per_sec_per_gpu * total_num_gpus,
-            "tokens_per_sec": e2e_tokens_per_sec_per_gpu * total_num_gpus,
-            "samples_per_sec_per_gpu": e2e_samples_per_sec_per_gpu,
-            "tokens_per_sec_per_gpu": e2e_tokens_per_sec_per_gpu,
-            "policy_training_tokens_per_sec_per_gpu": policy_training_tokens_per_sec_per_gpu,
-            "policy_and_reference_logprobs_tokens_per_sec_per_gpu": policy_and_reference_logprobs_tokens_per_sec_per_gpu,
-            "training_worker_group_tokens_per_sec_per_gpu": training_worker_group_tokens_per_sec_per_gpu,
-            "generation_tokens_per_sec_per_gpu": generation_tokens_per_sec_per_gpu,
-            "training_worker_group_tokens_per_sec": training_worker_group_tokens_per_sec_per_gpu
-            * training_num_gpus,
-            "generation_tokens_per_sec": generation_tokens_per_sec_per_gpu
-            * generation_num_gpus,
-        }
-    )
+    performance_metrics_update = {
+        "samples_per_sec": e2e_samples_per_sec_per_gpu * total_num_gpus,
+        "tokens_per_sec": e2e_tokens_per_sec_per_gpu * total_num_gpus,
+        "samples_per_sec_per_gpu": e2e_samples_per_sec_per_gpu,
+        "tokens_per_sec_per_gpu": e2e_tokens_per_sec_per_gpu,
+        "policy_training_tokens_per_sec_per_gpu": policy_training_tokens_per_sec_per_gpu,
+        "policy_and_reference_logprobs_tokens_per_sec_per_gpu": policy_and_reference_logprobs_tokens_per_sec_per_gpu,
+        "training_worker_group_tokens_per_sec_per_gpu": training_worker_group_tokens_per_sec_per_gpu,
+        "generation_tokens_per_sec_per_gpu": generation_tokens_per_sec_per_gpu,
+        "training_worker_group_tokens_per_sec": training_worker_group_tokens_per_sec_per_gpu
+        * training_num_gpus,
+        "generation_tokens_per_sec": generation_tokens_per_sec_per_gpu
+        * generation_num_gpus,
+    }
+
+    # Add wall clock metrics if available
+    if wall_clock_samples_per_sec_per_gpu is not None:
+        performance_metrics_update.update({
+            "wall_clock_samples_per_sec": wall_clock_samples_per_sec_per_gpu * total_num_gpus,
+            "wall_clock_samples_per_sec_per_gpu": wall_clock_samples_per_sec_per_gpu,
+        })
+
+    performance_metrics.update(performance_metrics_update)
 
     return performance_metrics

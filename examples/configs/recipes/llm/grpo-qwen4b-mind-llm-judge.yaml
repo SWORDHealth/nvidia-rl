@@ -12,7 +12,7 @@ grpo:
   max_val_samples: 256
   val_batch_size: 256
   async_grpo:
-    enabled: true
+    enabled: false
     max_trajectory_age_steps: 1
 
 loss_fn:
@@ -26,14 +26,15 @@ loss_fn:
 
 checkpointing:
   enabled: false
-  checkpoint_dir: results_grpo/grpo-qwen30ba3b-mind
-  metric_name: "val:val_reward"
+  checkpoint_dir: results_grpo/grpo-qwen4b-mind-llm-judge
+  metric_name: "val_reward"
   higher_is_better: true
   keep_top_k: 3
   save_period: 10
   checkpoint_must_save_by: null
+
 policy:
-  model_name: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_3010_bs16/step_210/hf/
+  model_name: /mnt/data/shared/models/Qwen3-4B-Thinking-2507/
   tokenizer:
     name: ${policy.model_name}
   train_global_batch_size: 512
@@ -69,15 +70,15 @@ policy:
     empty_unused_memory_level: 1
     activation_checkpointing: false
     converter_type: "LlamaForCausalLM"
-    tensor_model_parallel_size: 4
+    tensor_model_parallel_size: 1
     expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 8
+    expert_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     num_layers_in_first_pipeline_stage: null
     num_layers_in_last_pipeline_stage: null
     context_parallel_size: 1
     pipeline_dtype: ${policy.precision}
-    sequence_parallel: true
+    sequence_parallel: false
     freeze_moe_router: true
     moe_router_dtype: "fp64"
     moe_router_load_balancing_type: "none"
@@ -88,7 +89,7 @@ policy:
     optimizer:
       optimizer: "adam"
       lr: 3.0e-07
-      min_lr: 3.0e-07
+      min_lr: 3.0e-08
       weight_decay: 0.01
       bf16: true
       fp16: false
@@ -135,37 +136,53 @@ policy:
       resources:
         gpus_per_node: null
         num_nodes: null
+
 env:
-  reward_model:
+  llm_judge:
     enabled: true
-    model_name: "Skywork/Skywork-Reward-V2-Qwen3-4B"
+    model_name: /mnt/data/shared/models/Qwen3-4B-Thinking-2507/
     tokenizer:
-      name: ${env.reward_model.model_name}
+      name: ${env.llm_judge.model_name}
     precision: "bfloat16"
     batch_size: ${policy.train_micro_batch_size}
     checkpoint_path: null
-    max_model_len: 4096
-    offload_optimizer_for_logprob: false
+    max_model_len: 32768
+    logprob_batch_size: 1
     resources:
       gpus_per_node: 8
       num_nodes: 1
-    dtensor_cfg:
-      _v2: true
-      enabled: true
-      sequence_parallel: false
-      tensor_parallel_size: 1
-      context_parallel_size: 1
-      custom_parallel_plan: null
-      cpu_offload: false
-      activation_checkpointing: false
-    reward_model_cfg:
-      enabled: true
-      reward_model_type: "bradley_terry"
-    dynamic_batching:
-      enabled: false
-    sequence_packing:
-      enabled: false
-    max_grad_norm: null
+    generation:
+      backend: "vllm"
+      max_new_tokens: 8192
+      temperature: 0.1
+      top_p: 0.99
+      top_k: null
+      stop_token_ids: null
+      stop_strings: null
+      vllm_cfg:
+        tensor_parallel_size: 1
+        pipeline_parallel_size: 1
+        expert_parallel_size: 1
+        gpu_memory_utilization: 0.6
+        max_model_len: ${env.llm_judge.max_model_len}
+        skip_tokenizer_init: false
+        async_engine: false
+        precision: ${env.llm_judge.precision}
+        load_format: "auto"
+        enforce_eager: true
+        use_deep_gemm: False
+        num_last_layers_in_bf16: 0
+        num_first_layers_in_bf16: 0
+      colocated:
+        enabled: false
+        resources:
+          gpus_per_node: 8
+          num_nodes: 1
+    llm_judge:
+      temperature: 0.1
+      max_new_tokens: 8192
+      top_p: 1
+
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
   prompt_file: null
@@ -173,8 +190,9 @@ data:
   shuffle: true
   dataset_name: "swordhealth/Phoenix-Chat-DPO-0910"
   data_cls: "mind"
+
 logger:
-  log_dir: logs_grpo/grpo-qwen30ba3b-mind
+  log_dir: logs_grpo/grpo-qwen4b-mind-llm-judge
   num_val_samples_to_print: 0
   wandb_enabled: false
   tensorboard_enabled: true
@@ -183,14 +201,15 @@ logger:
   monitor_gpus: false
   wandb:
     project: nemo-rl
-    name: grpo-qwen30ba3b-mind
+    name: grpo-qwen4b-mind-llm-judge
   tensorboard: {}
   mlflow:
     experiment_name: "nemo-rl"
-    run_name: "grpo-qwen30ba3b-mind"
+    run_name: "grpo-qwen4b-mind-llm-judge"
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10
+
 cluster:
   gpus_per_node: 8
   num_nodes: 5

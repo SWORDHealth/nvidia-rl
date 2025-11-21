@@ -843,6 +843,8 @@ def grpo_train(
     processor: Optional[AutoProcessor] = None,
 ) -> None:
     """Run GRPO training algorithm."""
+    import time
+    training_start_time = time.time()
     timer = Timer()
     timeout = TimeoutChecker(
         timeout=master_config["checkpointing"]["checkpoint_must_save_by"],
@@ -1361,7 +1363,7 @@ def grpo_train(
                 metrics["global_valid_toks"] / total_time / total_num_gpus
             )
             performance_metrics = print_performance_metrics(
-                train_results, metrics, timing_metrics, master_config
+                train_results, metrics, timing_metrics, master_config, training_start_time
             )
 
             logger.log_metrics(metrics, total_steps + 1, prefix="train")
@@ -1589,6 +1591,8 @@ def async_grpo_train(
     # Import async utilities only when needed
     from nemo_rl.algorithms.async_utils import AsyncTrajectoryCollector, ReplayBuffer
 
+    import time
+    training_start_time = time.time()
     timer = Timer()
     timeout = TimeoutChecker(
         timeout=master_config["checkpointing"]["checkpoint_must_save_by"],
@@ -2208,7 +2212,7 @@ def async_grpo_train(
                 metrics["global_valid_toks"] / total_time / total_num_gpus
             )
             performance_metrics = print_performance_metrics(
-                train_results, metrics, timing_metrics, master_config
+                train_results, metrics, timing_metrics, master_config, training_start_time
             )
 
             logger.log_metrics(performance_metrics, step + 1, prefix="performance")
