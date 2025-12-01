@@ -190,6 +190,9 @@ def validate_paragraphs(text, N, first_word, i):
     paragraphs = text.split("\n\n")
     if len(paragraphs) != N:
         return False
+    # Check bounds before accessing
+    if i < 1 or i > len(paragraphs):
+        return False
     return bool(paragraphs[i - 1].strip().startswith(first_word))
 
 
@@ -631,12 +634,20 @@ def verify_ifeval_constraints(response: str, ground_truth: list[dict]) -> tuple[
     for idx, instruction_id in enumerate(instruction_ids):
         kwargs = kwargs_list[idx] if idx < len(kwargs_list) and kwargs_list[idx] is not None else {}
 
-        result = IFEVAL_INSTRUCTION_MAP[instruction_id](response, kwargs)
-        if result:
-            passed += 1
-            feedback_parts.append(f"{instruction_id}: PASS")
+        if instruction_id in IFEVAL_INSTRUCTION_MAP:
+            try:
+                result = IFEVAL_INSTRUCTION_MAP[instruction_id](response, kwargs)
+                if result:
+                    passed += 1
+                    feedback_parts.append(f"{instruction_id}: PASS")
+                else:
+                    feedback_parts.append(f"{instruction_id}: FAIL")
+            except Exception as e:
+                # Log error but continue - don't crash trajectory generation
+                feedback_parts.append(f"{instruction_id}: ERROR ({str(e)[:50]})")
+                print(f"⚠️  Error verifying {instruction_id}: {e}")
         else:
-            feedback_parts.append(f"{instruction_id}: FAIL")
+            feedback_parts.append(f"{instruction_id}: UNKNOWN")
 
     # Calculate reward as fraction of passed constraints
     reward = passed / total if total > 0 else 0.0
@@ -704,43 +715,56 @@ class MindVerifiableEnvironment(EnvironmentInterface):
         observations = []
 
         for i, conversation in enumerate(message_log_batch):
-            # Extract assistant response (last message should be from assistant)
-            assistant_response = ""
+            try:
+                # Extract assistant response (last message should be from assistant)
+                assistant_response = ""
 
-            for msg in conversation:
-                if msg["role"] == "assistant":
-                    assistant_response = str(msg["content"])
+                for msg in conversation:
+                    if msg["role"] == "assistant":
+                        assistant_response = str(msg["content"])
 
-            # Get metadata fields
-            ground_truth = metadata[i].get("ground_truth", "")
-            dataset_type = metadata[i].get("dataset", ["math"])
+                # Get metadata fields
+                ground_truth = metadata[i].get("ground_truth", "")
+                dataset_type = metadata[i].get("dataset", ["math"])
 
-            # Handle list wrapping for dataset type
-            if isinstance(dataset_type, list):
-                dataset_type = dataset_type[0] if dataset_type else "math"
+                # Handle list wrapping for dataset type
+                if isinstance(dataset_type, list):
+                    dataset_type = dataset_type[0] if dataset_type else "math"
 
-            dataset_type = dataset_type.lower()
+                dataset_type = dataset_type.lower()
 
-            # Route to appropriate verification
-            if dataset_type == "ifeval":
-                reward, feedback = verify_ifeval_constraints(assistant_response, ground_truth)
-                rewards.append(reward)
-                observations.append({"role": "environment", "content": feedback})
-                print(f"IFEval verification - Reward: {reward:.2f} | {feedback[:100]}...")
-            else:
-                # Default to math verification
-                reward = verify_math_answer(assistant_response, ground_truth)
-                rewards.append(reward)
-
-                extracted_answer = extract_answer(assistant_response)
-                if reward == 1.0:
-                    feedback = f"Correct! Answer: {extracted_answer}"
+                # Route to appropriate verification
+                if dataset_type == "ifeval":
+                    reward, feedback = verify_ifeval_constraints(assistant_response, ground_truth)
+                    rewards.append(reward)
+                    observations.append({"role": "environment", "content": feedback})
+                    print(f"IFEval verification - Reward: {reward:.2f} | {feedback[:100]}...")
                 else:
-                    feedback = f"Incorrect. Your answer: {extracted_answer}, Expected: {ground_truth}"
+                    # Default to math verification
+                    reward = verify_math_answer(assistant_response, ground_truth)
+                    rewards.append(reward)
 
-                observations.append({"role": "environment", "content": feedback})
-                print(f"Math verification - Reward: {reward:.1f} | "
-                      f"Extracted: '{extracted_answer}' | Expected: '{ground_truth}'")
+                    extracted_answer = extract_answer(assistant_response)
+                    if reward == 1.0:
+                        feedback = f"Correct! Answer: {extracted_answer}"
+                    else:
+                        feedback = f"Incorrect. Your answer: {extracted_answer}, Expected: {ground_truth}"
+
+                    observations.append({"role": "environment", "content": feedback})
+                    print(f"Math verification - Reward: {reward:.1f} | "
+                          f"Extracted: '{extracted_answer}' | Expected: '{ground_truth}'")
+
+            except Exception as e:
+                # If verification fails, give 0 reward and log error
+                print(f"❌ Error in environment step for sample {i}: {e}")
+                import traceback
+                traceback.print_exc()
+
+                rewards.append(0.0)
+                observations.append({
+                    "role": "environment",
+                    "content": f"Error during verification: {str(e)[:100]}"
+                })
 
         # All episodes terminate after one step
         terminateds = [True] * len(message_log_batch)

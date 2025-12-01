@@ -10,11 +10,11 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen235ba22b_thinking_mind_expert_8k_3010_bs16_5e-6
+  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen235ba22b_thinking_mind_expert_8k_2111
   metric_name: val:val_loss
   higher_is_better: false
   keep_top_k: 20
-  save_period: 210
+  save_period: 260
   checkpoint_must_save_by: null
 
 policy:
@@ -103,8 +103,8 @@ policy:
       end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
       weight_decay_incr_style: "constant"
       lr_decay_style: "cosine"
-      lr_decay_iters: 210
-      lr_warmup_iters: 21
+      lr_decay_iters: 260
+      lr_warmup_iters: 26
       lr_warmup_init: 0
 
     distributed_data_parallel_config:
@@ -119,7 +119,7 @@ policy:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: "swordhealth/Dawn-Gym-Chat-SFT-3010"
+  dataset_name: /mnt/data/pmartins/data/merged_datasets/Mind-SFT-merged-gym-task-2111
   data_cls: mind
   prompt_file: null
   split: "train"
@@ -133,7 +133,7 @@ data:
   roles_to_train_on: ["assistant"]
 
 logger:
-  log_dir: logs/sft_mind_qwen235ba22b_thinking_mind_expert_8k_3010_bs16_1e-5
+  log_dir: logs/sft_mind_qwen235ba22b_thinking_mind_expert_8k_2111
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
@@ -142,9 +142,9 @@ logger:
   num_val_samples_to_print: 0
   wandb:
     project: nemo-rl
-    name: sft_mind_qwen235ba22b_thinking_mind_expert_8k_3010_bs16_1e-5
+    name: sft_mind_qwen235ba22b_thinking_mind_expert_8k_2111
   tensorboard:
-    log_dir: sft_mind_qwen235ba22b_thinking_mind_expert_8k_3010_bs16_1e-5
+    log_dir: sft_mind_qwen235ba22b_thinking_mind_expert_8k_2111
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10

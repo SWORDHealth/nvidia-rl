@@ -1,16 +1,17 @@
-defaults: ../../grpo_math_1B.yaml
+defaults: ../../grpo_rm_1B.yaml
 
 grpo:
   num_prompts_per_step: 64
   num_generations_per_prompt: 8
   max_num_epochs: 1
-  max_num_steps: 10000
+  max_num_steps: 1000000
   normalize_rewards: true
   use_leave_one_out_baseline: true
   val_period: 10
   val_at_start: false
   max_val_samples: 256
   val_batch_size: 256
+  max_rollout_turns: 5
   async_grpo:
     enabled: true
     max_trajectory_age_steps: 4
@@ -27,12 +28,12 @@ loss_fn:
   ratio_clip_c: null
 
 checkpointing:
-  enabled: true
-  checkpoint_dir: results_grpo/grpo-qwen4b-mind-verifiable
-  metric_name: "val:val_reward"
+  enabled: false
+  checkpoint_dir: results_grpo/grpo-qwen4b-mind-llm-judge-multiturn
+  metric_name: "val_reward"
   higher_is_better: true
   keep_top_k: 3
-  save_period: 3
+  save_period: 10
   checkpoint_must_save_by: null
 
 policy:
@@ -137,24 +138,104 @@ policy:
     colocated:
       enabled: false
       resources:
-        gpus_per_node: 4
+        gpus_per_node: 8
         num_nodes: 1
 
 env:
-  mind_verifiable:
+  reward_model:
+    enabled: false  # Using llm_judge instead
+  llm_judge:
     enabled: true
-    stop_strings: null
-
+    model_name: /mnt/data/shared/models/Qwen3-4B-Thinking-2507/
+    tokenizer:
+      name: ${env.llm_judge.model_name}
+    precision: "bfloat16"
+    batch_size: ${policy.train_micro_batch_size}
+    checkpoint_path: null
+    max_model_len: 32768
+    logprob_batch_size: 1
+    resources:
+      gpus_per_node: 8
+      num_nodes: 1
+    generation:
+      backend: "vllm"
+      max_new_tokens: 8192
+      temperature: 0.1
+      top_p: 0.99
+      top_k: null
+      stop_token_ids: null
+      stop_strings: null
+      vllm_cfg:
+        tensor_parallel_size: 1
+        pipeline_parallel_size: 1
+        expert_parallel_size: 1
+        gpu_memory_utilization: 0.6
+        max_model_len: 32768
+        skip_tokenizer_init: false
+        async_engine: true
+        precision: ${env.llm_judge.precision}
+        load_format: "auto"
+        enforce_eager: true
+        use_deep_gemm: False
+        num_last_layers_in_bf16: 0
+        num_first_layers_in_bf16: 0
+      colocated:
+        enabled: false
+        resources:
+          gpus_per_node: 8
+          num_nodes: 1
+    llm_judge:
+      temperature: 0.1
+      max_new_tokens: 8192
+      top_p: 1
+    
+    user_llm:
+      enabled: true
+      model_name: /mnt/data/shared/models/Qwen3-4B-Instruct-2507/
+      checkpoint_path: null
+      tokenizer:
+        name: ${env.llm_judge.user_llm.model_name}
+      precision: "bfloat16"
+      max_turns: ${grpo.max_rollout_turns}
+      
+      generation:
+        backend: "vllm"
+        max_new_tokens: 2048
+        temperature: 1
+        top_p: 1
+        top_k: null
+        stop_token_ids: null
+        stop_strings: null
+        vllm_cfg:
+          tensor_parallel_size: 1
+          pipeline_parallel_size: 1
+          expert_parallel_size: 1
+          gpu_memory_utilization: 0.5
+          max_model_len: 32768
+          skip_tokenizer_init: false
+          async_engine: true
+          precision: ${env.llm_judge.user_llm.precision}
+          load_format: "auto"
+          enforce_eager: true
+          use_deep_gemm: False
+          num_last_layers_in_bf16: 0
+          num_first_layers_in_bf16: 0
+        colocated:
+          enabled: false
+          resources:
+            gpus_per_node: 8
+            num_nodes: 1
+      
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
   prompt_file: null
   system_prompt_file: null
   shuffle: true
-  dataset_name: /mnt/data/pmartins/data/rlvr/Dolci-Think-RL-if
+  dataset_name: "swordhealth/Phoenix-Chat-DPO-0910"
   data_cls: "mind"
 
 logger:
-  log_dir: logs_grpo/grpo-qwen4b-mind-verifiable
+  log_dir: logs_grpo/grpo-qwen4b-mind-llm-judge-multiturn
   num_val_samples_to_print: 0
   wandb_enabled: false
   tensorboard_enabled: true
@@ -163,15 +244,15 @@ logger:
   monitor_gpus: false
   wandb:
     project: nemo-rl
-    name: grpo-qwen4b-mind-verifiable
+    name: grpo-qwen4b-mind-llm-judge-multiturn
   tensorboard: {}
   mlflow:
     experiment_name: "nemo-rl"
-    run_name: "grpo-qwen4b-mind-verifiable"
+    run_name: "grpo-qwen4b-mind-llm-judge-multiturn"
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10
 
 cluster:
   gpus_per_node: 8
-  num_nodes: 1
+  num_nodes: 5

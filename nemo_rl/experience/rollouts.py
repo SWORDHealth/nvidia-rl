@@ -18,6 +18,7 @@
 import asyncio
 import copy
 import json
+import re
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
@@ -95,18 +96,18 @@ def generate_responses(
     # Print first 10 examples using chat format for debugging
     print("\n🤖 CHAT EXAMPLES (sync) - First 10:")
     print("="*80)
-    for i in range(min(5, len(generated_texts))):
+    for i in range(min(2, len(generated_texts))):
         print(f"\nExample {i+1}:")
         print("-" * 40)
 
-        # Print only the last 5 messages in the conversation history
+        # Print only the last 2 messages in the conversation history
         messages = batch["message_log"][i]
-        last_5_messages = messages[-5:] if len(messages) > 5 else messages
+        last_2_messages = messages[-2:] if len(messages) > 2 else messages
 
-        if len(messages) > 5:
+        if len(messages) > 2:
             print("   ... (showing last 5 messages)")
 
-        for msg in last_5_messages:
+        for msg in last_2_messages:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
 
@@ -123,7 +124,6 @@ def generate_responses(
         print(f"🤖 ASSISTANT (NEW): {generated_texts[i]}")
 
     print("="*80 + "\n")
-        
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
@@ -312,7 +312,12 @@ def calculate_rewards(
         env_info = [batch["extra_env_info"][i] for i in indices]
 
         # Submit task to environment and store future
-        future = task_to_env[task_name].step.remote(messages, env_info)  # type: ignore # ray actor call
+        # Use step_async if available (for async_engine=True), otherwise use step
+        env_actor = task_to_env[task_name]
+        if hasattr(env_actor, 'step_async'):
+            future = env_actor.step_async.remote(messages, env_info)  # type: ignore # ray actor call
+        else:
+            future = env_actor.step.remote(messages, env_info)  # type: ignore # ray actor call
         futures.append(future)
         future_to_indices[future] = indices
 
@@ -424,7 +429,26 @@ def run_multi_turn_rollout(
 
         active_samples_per_turn.append(len(active_indices))
 
-        # Convert LLMMessageLogType to FlatMessagesType for generation
+        if turn > 0:
+            for global_idx in active_indices.tolist():
+                message_log = current_batch["message_log"][global_idx]
+                for i, message in enumerate(message_log):
+                    decoded_full = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                    needs_cleaning = "</think>" in decoded_full or "<think>" in decoded_full
+
+                    if needs_cleaning:
+                        # Decode with skip_special_tokens=False to keep chat template markers
+                        decoded = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                        if "</think>" in decoded:
+                            decoded = re.split(r'</think>\s*', decoded, maxsplit=1)[-1]
+
+                        decoded = re.sub(r'<think>\s*$', '', decoded).strip()
+
+                        # Re-tokenize the cleaned text (which still has chat markers)
+                        message["token_ids"] = tokenizer(decoded, add_special_tokens=False, return_tensors="pt").input_ids[0]
+                        # Content field keeps full chat markers for consistent debug display
+                        message["content"] = decoded
+
         active_batch = current_batch.select_indices(active_indices)
         active_stop_strings = [current_stop_strings[i] for i in active_indices.tolist()]
 
@@ -487,13 +511,20 @@ def run_multi_turn_rollout(
         truncation_mask = torch.zeros_like(env_output.terminateds, dtype=torch.bool)
         for i, global_idx in enumerate(active_indices.tolist()):
             env_obs_content = env_output.observations[i]["content"]
-            # Tokenize the raw content from the environment
-            # TODO @sahilj: handle if we want these subsequent messages to have a chat template
-            tokenized_obs = tokenizer(
-                env_obs_content, return_tensors="pt", add_special_tokens=False
-            ).input_ids[0]
-            # tokenizer returns torch.float32 when env_obs_content is empty
-            tokenized_obs = tokenized_obs.to(dtype=torch.int64)
+
+            formatted_tokens = tokenizer.apply_chat_template(
+                [{"role": "user", "content": env_obs_content}],
+                add_generation_prompt=True,
+                tokenize=True,
+                return_tensors="pt",
+            )[0]
+
+            decoded_check = tokenizer.decode(formatted_tokens, skip_special_tokens=False)
+            if "<think>" not in decoded_check:
+                think_tokens = tokenizer.encode("<think>", add_special_tokens=False, return_tensors="pt")[0]
+                formatted_tokens = torch.cat([formatted_tokens, think_tokens])
+
+            tokenized_obs = formatted_tokens.to(dtype=torch.int64)
 
             # check if new message overflows max_seq_len
             if (
@@ -512,9 +543,11 @@ def run_multi_turn_rollout(
                 # Record truncation
                 sample_truncated[active_indices[i]] = True
 
+            content_with_template = tokenizer.decode(tokenized_obs, skip_special_tokens=False)
+
             tokenized_env_obs_message = {
                 "role": env_output.observations[i]["role"],
-                "content": env_obs_content,
+                "content": content_with_template, 
                 "token_ids": tokenized_obs,
             }
             current_batch["message_log"][global_idx].append(tokenized_env_obs_message)
@@ -706,6 +739,44 @@ async def run_sample_multi_turn_rollout(
 
         turn_count += 1
 
+        # Clean reasoning traces from message log if turn > 0
+        if turn > 0:
+            for i, message in enumerate(current_message_log):
+                if "token_ids" not in message:
+                    continue
+
+                decoded_full = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                needs_cleaning = "</think>" in decoded_full or "<think>" in decoded_full
+
+                if needs_cleaning:
+                    # Decode with skip_special_tokens=False to keep chat template markers
+                    decoded = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                    if "</think>" in decoded:
+                        decoded = re.split(r'</think>\s*', decoded, maxsplit=1)[-1]
+
+                    decoded = re.sub(r'<think>\s*$', '', decoded).strip()
+
+                    # Re-tokenize the cleaned text (which still has chat markers)
+                    message["token_ids"] = tokenizer(decoded, add_special_tokens=False, return_tensors="pt").input_ids[0]
+                    # Content field keeps full chat markers for consistent debug display
+                    message["content"] = decoded
+
+        # Debug: Print policy input for first sample
+        # if sample_idx == 0:
+        #     print(f"\n🤖 [Turn {turn}] POLICY INPUT (Sample 0):")
+        #     print("=" * 80)
+        #     for i, msg in enumerate(current_message_log):
+        #         role = msg.get('role', 'N/A')
+        #         # Decode token_ids to show actual input including generation prompt
+        #         if "token_ids" in msg:
+        #             decoded = tokenizer.decode(msg["token_ids"], skip_special_tokens=False)
+        #             print(f"[Message {i}] role={role}:")
+        #             print(decoded)  
+        #         elif "content" in msg:
+        #             print(f"[Message {i}] role={role}:")
+        #             print(msg["content"])
+        #         print("-" * 80)
+
         # Generate response for this sample using async generation
         try:
             (
@@ -735,6 +806,18 @@ async def run_sample_multi_turn_rollout(
                     per_worker_token_counts.get(worker_idx, 0) + gen_token_count
                 )
 
+            # Debug: Print policy output for first sample
+            # if sample_idx == 0:
+            #     # Get the last assistant message (the one just generated)
+            #     last_message = current_message_log[-1]
+            #     if last_message.get("role") == "assistant":
+            #         generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=False)
+            #         print(f"\n✅ [Turn {turn}] POLICY OUTPUT (Sample 0):")
+            #         print("=" * 80)
+            #         print(f"Generated tokens: {gen_token_count}")
+            #         print(f"Content:\n{generated_text}")  
+            #         print("=" * 80)
+
         except Exception as e:
             print(f"Error generating response for sample {sample_idx}: {e}")
             break
@@ -755,10 +838,33 @@ async def run_sample_multi_turn_rollout(
         # Check termination
         terminated = env_output.terminateds[0].item()
         env_obs_content = env_output.observations[0]["content"]
-        # Tokenize environment response
-        tokenized_obs = tokenizer(
-            env_obs_content, return_tensors="pt", add_special_tokens=False
-        ).input_ids[0]
+
+        # Debug: Print environment observation for first sample
+        # if sample_idx == 0:
+        #     obs_role = env_output.observations[0]["role"]
+        #     print(f"\n🌍 [Turn {turn}] ENVIRONMENT OBSERVATION (Sample 0):")
+        #     print("=" * 80)
+        #     print(f"Role: {obs_role}")
+        #     print(f"Reward: {env_output.rewards[0].item():.4f}")
+        #     print(f"Terminated: {terminated}")
+        #     print(f"Content (raw):\n{env_obs_content}")
+        #     print("=" * 80)
+
+        # Tokenize environment response with chat template and generation prompt
+        formatted_tokens = tokenizer.apply_chat_template(
+            [{"role": "user", "content": env_obs_content}],
+            add_generation_prompt=True,
+            tokenize=True,
+            return_tensors="pt",
+        )[0]
+
+        # Add <think> tag if not present
+        decoded_check = tokenizer.decode(formatted_tokens, skip_special_tokens=False)
+        if "<think>" not in decoded_check:
+            think_tokens = tokenizer.encode("<think>", add_special_tokens=False, return_tensors="pt")[0]
+            formatted_tokens = torch.cat([formatted_tokens, think_tokens])
+
+        tokenized_obs = formatted_tokens.to(dtype=torch.int64)
 
         # Check for sequence length overflow
         if input_lengths + gen_token_count + len(tokenized_obs) >= max_seq_len:
@@ -770,9 +876,12 @@ async def run_sample_multi_turn_rollout(
                 tokenized_obs = torch.empty(0, dtype=tokenized_obs.dtype)
             truncated = True
 
+        # Set content field with full chat markers for consistent debugging
+        content_with_template = tokenizer.decode(tokenized_obs, skip_special_tokens=False)
+
         env_message = {
             "role": env_output.observations[0]["role"],
-            "content": env_obs_content,
+            "content": content_with_template,  # Use formatted version with chat markers
             "token_ids": tokenized_obs,
         }
         current_message_log.append(env_message)

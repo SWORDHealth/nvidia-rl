@@ -10,7 +10,7 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_2111_bs16
+  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_2111_bs16_
   metric_name: val:val_loss
   higher_is_better: false
   keep_top_k: 20
@@ -117,7 +117,7 @@ policy:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: /mnt/data/pmartins/data/merged_datasets/Mind-SFT-merged-gym-task-2111
+  dataset_name: swordhealth/Dawn-Gym-Chat-SFT-3010  #/mnt/data/pmartins/data/merged_datasets/Mind-SFT-merged-gym-task-2111
   data_cls: mind
   prompt_file: null
   split: "train"

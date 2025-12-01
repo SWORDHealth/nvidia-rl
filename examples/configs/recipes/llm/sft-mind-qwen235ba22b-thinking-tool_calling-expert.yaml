@@ -10,8 +10,8 @@ sft:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2110
-  metric_name: val_loss
+  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2811_5e-6
+  metric_name: val:val_loss
   higher_is_better: false
   keep_top_k: 20
   save_period: 830
@@ -25,6 +25,8 @@ policy:
   train_micro_batch_size: 1
   max_total_sequence_length: 8192
   precision: bfloat16
+
+  offload_optimizer_for_logprob: false
 
   dtensor_cfg:
     enabled: false
@@ -58,7 +60,7 @@ policy:
     num_layers_in_last_pipeline_stage: null
     freeze_moe_router: false
     moe_router_dtype: null
-    moe_router_load_balancing_type: "aux_loss"
+    moe_router_load_balancing_type: "none"
     moe_router_bias_update_rate: 1e-3
     moe_permute_fusion: false
     moe_token_dispatcher_type: "allgather"
@@ -69,11 +71,16 @@ policy:
     use_flash_attention: true
     use_fused_rmsnorm: true
     # num_layers_per_virtual_pipeline_stage: 12
+    distributed_timeout_minutes: 1800
+    no_save_optim: true
+    no_save_rng: true
+    bias_activation_fusion: True
+    defer_fp32_logits: False
 
     optimizer:
       optimizer: "adam"
-      lr: 2e-5
-      min_lr: 2.0e-6
+      lr: 5e-6
+      min_lr: 5e-7
       weight_decay: 0.01
       bf16: true
       fp16: false
@@ -85,6 +92,9 @@ policy:
 
       use_distributed_optimizer: true
       use_precision_aware_optimizer: true
+
+      optimizer_cpu_offload: false
+      optimizer_offload_fraction: 0.0
 
       clip_grad: ${policy.max_grad_norm}
 
@@ -123,7 +133,7 @@ data:
   roles_to_train_on: ["assistant"]
 
 logger:
-  log_dir: logs/sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2110
+  log_dir: logs/sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2811
   wandb_enabled: false
   tensorboard_enabled: true
   mlflow_enabled: false
@@ -132,9 +142,9 @@ logger:
   num_val_samples_to_print: 0
   wandb:
     project: nemo-rl
-    name: sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2110
+    name: sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2811
   tensorboard:
-    log_dir: sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2110
+    log_dir: sft_mind_qwen235ba22b_thinking_tool_calling_expert_8k_2811
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10

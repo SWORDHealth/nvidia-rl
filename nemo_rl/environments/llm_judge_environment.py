@@ -54,6 +54,7 @@ class LLMJudgeEnvironmentConfig(TypedDict):
         max_grad_norm: Maximum gradient norm for training
         generation: Generation configuration for VLLM
         llm_judge: LLM judge specific configuration
+        user_llm: Optional configuration for user LLM (for multi-turn conversations)
     """
 
     enabled: bool
@@ -69,6 +70,7 @@ class LLMJudgeEnvironmentConfig(TypedDict):
     max_grad_norm: Optional[float] = None
     generation: Optional[VllmConfig] = None
     llm_judge: Dict[str, Any] = {}
+    user_llm: NotRequired[Dict[str, Any]] = None
 
 
 @ray.remote
@@ -146,13 +148,39 @@ Respond with:
   Helpfulness: <score>"""
         )
 
+        # Check if multi-turn mode is enabled
+        self.multi_turn_enabled = self.config.get("user_llm") is not None
+        if self.multi_turn_enabled:
+            print("🔄 Multi-turn mode ENABLED with user LLM")
+            self.user_prompt_template = self.config["user_llm"].get(
+                "prompt_template",
+                """You are simulating a user in a mental health conversation with an AI assistant.
+
+Conversation History:
+{conversation_history}
+
+Generate the next user message that:
+1. Responds naturally to the assistant's last message
+2. Continues exploring your feelings or situation
+3. May introduce new topics, ask follow-up questions, or express emotions
+4. Maintains consistency with the conversation context
+
+Generate only the user's next message, nothing else."""
+            )
+            self.max_conversation_turns = self.config["user_llm"].get("max_turns", 5)
+            print(f"   Max conversation turns: {self.max_conversation_turns}")
+        else:
+            print("❌ Multi-turn mode DISABLED (single-turn evaluation)")
+
         self.task_data_spec = TaskDataSpec(
             task_name="llm_judge_env",
         )
 
         # Remove CUDA_VISIBLE_DEVICES to let ray fully control the GPU allocation
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-        self.virtual_cluster = RayVirtualCluster(
+
+        # Create virtual cluster for judge LLM
+        self.judge_virtual_cluster = RayVirtualCluster(
             name="grpo_llm_judge_cluster",
             bundle_ct_per_node_list=[self.config["resources"]["gpus_per_node"]]
             * self.config["resources"]["num_nodes"],
@@ -161,8 +189,31 @@ Respond with:
             max_colocated_worker_groups=1,
         )
         print(
-            f"🔧 Virtual cluster created with {self.virtual_cluster.get_placement_groups()} "
+            f"🔧 Judge virtual cluster created with {self.judge_virtual_cluster.get_placement_groups()} "
         )
+
+        # Create separate virtual cluster for user LLM if multi-turn enabled
+        if self.multi_turn_enabled:
+            # Read resources from generation.colocated.resources (same pattern as judge)
+            user_llm_resources = self.config["user_llm"]["generation"]["colocated"].get(
+                "resources", self.config["resources"]
+            )
+            self.user_virtual_cluster = RayVirtualCluster(
+                name="grpo_user_llm_cluster",
+                bundle_ct_per_node_list=[user_llm_resources["gpus_per_node"]]
+                * user_llm_resources["num_nodes"],
+                use_gpus=True,
+                num_gpus_per_node=user_llm_resources["gpus_per_node"],
+                max_colocated_worker_groups=1,
+            )
+            print(
+                f"🔧 User LLM virtual cluster created with {self.user_virtual_cluster.get_placement_groups()} "
+            )
+        else:
+            self.user_virtual_cluster = None
+
+        # Keep reference to judge cluster as self.virtual_cluster for backward compatibility
+        self.virtual_cluster = self.judge_virtual_cluster
 
         # Initialize LLM judge worker with proper resource management
         print("🔧 Setting up LLM judge worker...")
@@ -194,10 +245,14 @@ Respond with:
             # IMPORTANT: is_eval=True is required to load actual model weights (not dummy weights)
             vllm_config = configure_generation_config(vllm_config, self.tokenizer, is_eval=True)
 
+            # Track if async engine is enabled
+            self.use_async_engine = vllm_config['vllm_cfg'].get('async_engine', False)
+
             print(f"🔧 Creating VllmGeneration controller")
             print(f"   Model: {vllm_config['model_name']}")
             print(f"   Load format: {vllm_config['vllm_cfg']['load_format']}")
             print(f"   Tensor parallel size: {vllm_config['vllm_cfg']['tensor_parallel_size']}")
+            print(f"   Async engine: {self.use_async_engine}")
 
             # Use VllmGeneration controller instead of worker directly
             self.llm_judge_generator = VllmGeneration(
@@ -209,6 +264,44 @@ Respond with:
             print("🔧 Initializing VLLM workers...")
             self.llm_judge_generator._post_init()
             print("✅ VLLM workers initialized successfully")
+
+            # Initialize user LLM if multi-turn mode is enabled
+            if self.multi_turn_enabled:
+                print("🔧 Setting up User LLM worker...")
+                user_llm_config = self.config["user_llm"]
+
+                # Create separate tokenizer for user LLM if specified
+                if "tokenizer" in user_llm_config:
+                    self.user_tokenizer = get_tokenizer(user_llm_config["tokenizer"])
+                else:
+                    self.user_tokenizer = self.tokenizer  # Reuse judge tokenizer
+                print(f"✅ User tokenizer initialized")
+
+                # Prepare VllmConfig for user LLM
+                user_vllm_config = user_llm_config["generation"].copy()
+                user_vllm_config["model_name"] = user_llm_config.get("checkpoint_path") or user_llm_config["model_name"]
+                user_vllm_config["tokenizer"] = user_llm_config.get("tokenizer", self.config["tokenizer"])
+                user_vllm_config["precision"] = user_llm_config.get("precision", self.config["precision"])
+
+                user_vllm_config = configure_generation_config(user_vllm_config, self.user_tokenizer, is_eval=True)
+
+                print(f"🔧 Creating User LLM VllmGeneration controller")
+                print(f"   Model: {user_vllm_config['model_name']}")
+
+                # Use a unique name prefix for user LLM to avoid naming conflicts with judge LLM
+                # Use separate virtual cluster for user LLM
+                self.user_llm_generator = VllmGeneration(
+                    cluster=self.user_virtual_cluster,
+                    config=user_vllm_config,
+                    name_prefix="vllm_user_llm",  # Different from judge's "vllm_policy"
+                )
+
+                print("🔧 Initializing User LLM VLLM workers...")
+                self.user_llm_generator._post_init()
+                print("✅ User LLM workers initialized successfully")
+            else:
+                self.user_llm_generator = None
+                self.user_tokenizer = None
 
             print("✅ LLM JUDGE ENVIRONMENT INITIALIZATION COMPLETE")
         except Exception as e:
@@ -264,17 +357,306 @@ Respond with:
         # Clean assistant response
         assistant_response = re.sub(special_token_pattern, '', assistant_response).strip()
 
-        # Format conversation history
+        # Format conversation history - just the content without role prefixes
         history_lines = []
         for message in history_messages:
-            role = message["role"].capitalize()
             content = message["content"]
             if content:  # Only add non-empty messages
-                history_lines.append(f"{role}: {content}")
+                history_lines.append(content)
 
         conversation_history = "\n\n".join(history_lines) if history_lines else "(No prior conversation)"
 
         return conversation_history, assistant_response
+
+    def generate_user_messages(self, message_logs: List[LLMMessageLogType]) -> List[str]:
+        """Generate next user messages using the user LLM.
+
+        Args:
+            message_logs: List of conversation message logs
+
+        Returns:
+            List of generated user messages
+        """
+        if not self.multi_turn_enabled:
+            raise RuntimeError("User LLM is not enabled. Cannot generate user messages.")
+
+        # print(f"\n🤖 GENERATING USER MESSAGES")
+        # print("=" * 60)
+
+        # Build conversation history for user LLM as multi-turn message logs
+        user_llm_message_logs = []
+        for message_log in message_logs:
+            # Start with system prompt
+            user_llm_messages = [{
+                "role": "system",
+                "content": "You are simulating a user in a mental health conversation with an AI assistant."
+            }]
+
+            # Add conversation history with cleaned messages and SWAPPED roles
+            # From user LLM's perspective: original user = assistant, original assistant = user
+            for message in message_log:
+                if "token_ids" in message:
+                    content = self.user_tokenizer.decode(message["token_ids"], skip_special_tokens=True)
+                else:
+                    content = message.get("content", "")
+
+                content = re.sub(r'<\|im_start\|>\w+\s*', '', content)
+                content = re.sub(r'<\|im_end\|>\s*', '', content)
+                content = content.strip()
+
+                if "</think>" in content:
+                    content = re.split(r'</think>\s*', content, maxsplit=1)[-1]
+
+                content = re.sub(r'<think>\s*$', '', content).strip()
+
+                content = re.sub(r'<think>.*?</think>\s*', '', content, flags=re.DOTALL).strip()
+
+                if message["role"] == "assistant":
+                    swapped_role = "user"
+                elif message["role"] == "user":
+                    swapped_role = "assistant"
+                else:
+                    continue
+
+                if content:
+                    user_llm_messages.append({
+                        "role": swapped_role,
+                        "content": content
+                    })
+
+            user_llm_message_logs.append(user_llm_messages)
+
+        # Tokenize the message logs using the chat template
+        tokenized_prompts = []
+        for idx, msg_log in enumerate(user_llm_message_logs):
+            # Tokenize with generation prompt - this will add <|im_start|>assistant at the end
+            tokenized_log = get_formatted_message_log(
+                msg_log,
+                tokenizer=self.user_tokenizer,
+                task_data_spec=self.task_data_spec,
+                add_bos_token=True,
+                add_eos_token=False,
+                add_generation_prompt=True,  # Add generation prompt after last message
+            )
+
+            # Post-process: Remove any <think>...</think> blocks that were added during tokenization
+            for i, msg in enumerate(tokenized_log):
+
+                # Decode and check for thinking tags
+                decoded = self.user_tokenizer.decode(msg["token_ids"], skip_special_tokens=False)
+
+                # Remove all <think>...</think> blocks (including empty ones)
+                cleaned = re.sub(r'<think>.*?</think>', '', decoded, flags=re.DOTALL)
+                # Re-tokenize
+                msg["token_ids"] = self.user_tokenizer.encode(cleaned, add_special_tokens=False, return_tensors="pt")[0]
+
+
+            tokenized_prompts.append(tokenized_log)
+
+            # Debug: Print the tokenized result for first prompt (FULL MESSAGES)
+            # if idx == 0:
+            #     print(f"\n📝 User LLM Tokenized Messages (AFTER applying chat template):")
+            #     print(f"--- Message Log {idx+1} ---")
+            #     for i, msg in enumerate(tokenized_log):
+            #         if "token_ids" in msg:
+            #             token_ids = msg["token_ids"].tolist() if hasattr(msg["token_ids"], "tolist") else msg["token_ids"]
+            #             decoded = self.user_tokenizer.decode(token_ids, skip_special_tokens=False)
+            #             print(f"\n[Message {i}] role={msg.get('role', 'N/A')}:")
+            #             print(decoded)
+            #             print("-" * 80)
+            #     print("=" * 80)
+
+        cat_and_padded, input_lengths = batched_message_log_to_flat_message(
+            tokenized_prompts,
+            pad_value_dict={"token_ids": self.user_tokenizer.pad_token_id},
+        )
+
+        user_data = BatchedDataDict[GenerationDatumSpec](
+            {
+                "input_ids": cat_and_padded["token_ids"],
+                "input_lengths": input_lengths,
+            }
+        )
+
+        # Generate user responses
+        # print(f"🔧 Generating {len(message_logs)} user messages")
+        user_responses = self.user_llm_generator.generate(user_data)
+
+        # Decode user responses
+        output_ids = user_responses["output_ids"]
+        generation_lengths = user_responses["generation_lengths"]
+        unpadded_sequence_lengths = user_responses.get("unpadded_sequence_lengths")
+
+        generated_messages = []
+        for i in range(len(output_ids)):
+            gen_len = int(generation_lengths[i])
+            if unpadded_sequence_lengths is not None:
+                unpadded_len = int(unpadded_sequence_lengths[i])
+                input_len = unpadded_len - gen_len
+                generated_tokens = output_ids[i][input_len:unpadded_len]
+            else:
+                generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+
+            user_message = self.user_tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+            generated_messages.append(user_message)
+
+            # if i < 3:  # Show first 3 for debugging
+            #     print(f"  User message {i+1}: {user_message}...")
+
+        # print("=" * 60)
+        return generated_messages
+
+    async def generate_user_messages_async(
+        self, message_logs: List[LLMMessageLogType]
+    ) -> List[str]:
+        """Async version of generate_user_messages for use with async_engine=True.
+
+        Args:
+            message_logs: List of conversation message logs
+
+        Returns:
+            List of generated user messages
+        """
+        if not self.multi_turn_enabled:
+            raise RuntimeError("User LLM is not enabled. Cannot generate user messages.")
+
+        # print(f"\n🤖 GENERATING USER MESSAGES (async)")
+        # print("=" * 60)
+
+        # Build conversation history for user LLM as multi-turn message logs
+        user_llm_message_logs = []
+        for message_log in message_logs:
+            # Start with system prompt
+            user_llm_messages = [{
+                "role": "system",
+                "content": "You are simulating a user in a mental health conversation with an AI assistant."
+            }]
+
+            # Add conversation history with cleaned messages and SWAPPED roles
+            # From user LLM's perspective: original user = assistant, original assistant = user
+            for message in message_log:
+                if "token_ids" in message:
+                    content = self.user_tokenizer.decode(message["token_ids"], skip_special_tokens=True)
+                else:
+                    content = message.get("content", "")
+
+                content = re.sub(r'<\|im_start\|>\w+\s*', '', content)
+                content = re.sub(r'<\|im_end\|>\s*', '', content)
+                content = content.strip()
+
+                if "</think>" in content:
+                    content = re.split(r'</think>\s*', content, maxsplit=1)[-1]
+
+                content = re.sub(r'<think>\s*$', '', content).strip()
+
+                content = re.sub(r'<think>.*?</think>\s*', '', content, flags=re.DOTALL).strip()
+
+                if message["role"] == "assistant":
+                    swapped_role = "user"
+                elif message["role"] == "user":
+                    swapped_role = "assistant"
+                else:
+                    continue
+
+                if content:
+                    user_llm_messages.append({
+                        "role": swapped_role,
+                        "content": content
+                    })
+
+            user_llm_message_logs.append(user_llm_messages)
+
+        # Tokenize the message logs using the chat template
+        tokenized_prompts = []
+        for idx, msg_log in enumerate(user_llm_message_logs):
+            # Tokenize with generation prompt - this will add <|im_start|>assistant at the end
+            tokenized_log = get_formatted_message_log(
+                msg_log,
+                tokenizer=self.user_tokenizer,
+                task_data_spec=self.task_data_spec,
+                add_bos_token=True,
+                add_eos_token=False,
+                add_generation_prompt=True,  # Add generation prompt after last message
+            )
+
+            # Post-process: Remove any <think>...</think> blocks that were added during tokenization
+            for i, msg in enumerate(tokenized_log):
+
+                # Decode and check for thinking tags
+                decoded = self.user_tokenizer.decode(msg["token_ids"], skip_special_tokens=False)
+
+                # Remove all <think>...</think> blocks (including empty ones)
+                cleaned = re.sub(r'<think>.*?</think>', '', decoded, flags=re.DOTALL)
+                # Re-tokenize
+                msg["token_ids"] = self.user_tokenizer.encode(cleaned, add_special_tokens=False, return_tensors="pt")[0]
+
+
+            tokenized_prompts.append(tokenized_log)
+
+            # Debug: Print the tokenized result for first prompt (FULL MESSAGES)
+            # if idx == 0:
+            #     print(f"\n📝 User LLM Tokenized Messages (AFTER applying chat template):")
+            #     print(f"--- Message Log {idx+1} ---")
+            #     for i, msg in enumerate(tokenized_log):
+            #         if "token_ids" in msg:
+            #             token_ids = msg["token_ids"].tolist() if hasattr(msg["token_ids"], "tolist") else msg["token_ids"]
+            #             decoded = self.user_tokenizer.decode(token_ids, skip_special_tokens=False)
+            #             print(f"\n[Message {i}] role={msg.get('role', 'N/A')}:")
+            #             print(decoded)
+            #             print("-" * 80)
+            #     print("=" * 80)
+
+        cat_and_padded, input_lengths = batched_message_log_to_flat_message(
+            tokenized_prompts,
+            pad_value_dict={"token_ids": self.user_tokenizer.pad_token_id},
+        )
+
+        user_data = BatchedDataDict[GenerationDatumSpec](
+            {
+                "input_ids": cat_and_padded["token_ids"],
+                "input_lengths": input_lengths,
+            }
+        )
+
+        # Generate user responses using async method - collect all results from the async generator
+        # print(f"🔧 Generating {len(message_logs)} user messages (async)")
+        collected_indexed_outputs = []
+        async for original_idx, result_batch in self.user_llm_generator.generate_async(user_data):
+            collected_indexed_outputs.append((original_idx, result_batch))
+
+        # Sort by original_idx to ensure order matches input
+        collected_indexed_outputs.sort(key=lambda x: x[0])
+
+        # Extract in correct order and merge into a single BatchedDataDict
+        ordered_batches = [item for _, item in collected_indexed_outputs]
+        user_responses = BatchedDataDict.from_batches(
+            ordered_batches,
+            pad_value_dict={"output_ids": self.user_tokenizer.pad_token_id}
+        )
+
+        # Decode user responses
+        output_ids = user_responses["output_ids"]
+        generation_lengths = user_responses["generation_lengths"]
+        unpadded_sequence_lengths = user_responses.get("unpadded_sequence_lengths")
+
+        generated_messages = []
+        for i in range(len(output_ids)):
+            gen_len = int(generation_lengths[i])
+            if unpadded_sequence_lengths is not None:
+                unpadded_len = int(unpadded_sequence_lengths[i])
+                input_len = unpadded_len - gen_len
+                generated_tokens = output_ids[i][input_len:unpadded_len]
+            else:
+                generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+
+            user_message = self.user_tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+            generated_messages.append(user_message)
+
+            # if i < 3:  # Show first 3 for debugging
+            #     print(f"  User message {i+1}: {user_message}...")
+
+        # print("=" * 60)
+        return generated_messages
 
     def preprocess_data(
         self, message_logs: List[LLMMessageLogType]
@@ -320,18 +702,18 @@ Respond with:
             )
 
             # Debug: Print first tokenized prompt
-            if idx == 0:
-                # get_formatted_message_log returns a list of message dicts
-                all_token_ids = []
-                for msg in tokenized_log:
-                    if "token_ids" in msg:
-                        all_token_ids.extend(msg["token_ids"].tolist() if hasattr(msg["token_ids"], "tolist") else msg["token_ids"])
+            # if idx == 0:
+            #     # get_formatted_message_log returns a list of message dicts
+            #     all_token_ids = []
+            #     for msg in tokenized_log:
+            #         if "token_ids" in msg:
+            #             all_token_ids.extend(msg["token_ids"].tolist() if hasattr(msg["token_ids"], "tolist") else msg["token_ids"])
 
-                decoded = self.tokenizer.decode(all_token_ids, skip_special_tokens=False)
-                print(f"\n🔍 First tokenized prompt (length={len(all_token_ids)}):")
-                print(f"{decoded[:500]}...")
-                print(f"Last 50 tokens: {all_token_ids[-50:]}")
-                print("-" * 80)
+            #     decoded = self.tokenizer.decode(all_token_ids, skip_special_tokens=False)
+            #     print(f"\n🔍 First tokenized prompt (length={len(all_token_ids)}):")
+            #     print(f"{decoded}...")
+            #     print(f"Last 50 tokens: {all_token_ids[-50:]}")
+            #     print("-" * 80)
 
             tokenized_prompts.append(tokenized_log)
 
@@ -413,81 +795,75 @@ Respond with:
         judge's assessment of how well the assistant's responses align with the
         evaluation criteria in the prompt.
 
+        In multi-turn mode, this method:
+        1. Evaluates the current assistant response
+        2. If not at max turns, generates next user message and continues conversation
+        3. Returns non-terminal state to enable continued interaction
+
         Args:
             message_logs: List of conversation message logs to be scored.
                          Each log should contain alternating user and assistant messages.
-            env_infos: List of environment info dictionaries (currently unused
-                      but required by the interface).
+            env_infos: List of environment info dictionaries containing turn counts
+                      and conversation state.
 
         Returns:
             EnvironmentReturn containing:
-            - observations: List of observation dictionaries with reward information
-            - metadata: List of metadata dictionaries (currently None)
+            - observations: List of observation dictionaries with next user messages (multi-turn)
+                          or reward information (single-turn)
+            - metadata: List of metadata dictionaries with updated turn counts
             - next_stop_strings: List of stop strings (currently None)
             - rewards: Tensor of computed rewards for each conversation
-            - terminateds: Tensor indicating episode termination (all True)
+            - terminateds: Tensor indicating episode termination
             - answers: List of assistant responses from the conversations
         """
-        print("\n🤖 LLM JUDGE EVALUATION STARTED")
-        print("=" * 60)
+        # print("\n🤖 LLM JUDGE EVALUATION STARTED")
+        # print("=" * 60)
+
+        # Initialize or retrieve turn counts from metadata
+        turn_counts = []
+        for i, env_info in enumerate(env_infos):
+            if env_info is None:
+                turn_counts.append(1)
+            else:
+                turn_counts.append(env_info.get("turn_count", 1))
 
         # Show sample conversations being judged
-        print(f"📊 Judging {len(message_logs)} conversations")
-        for i, message_log in enumerate(message_logs[:3]):  # Show first 3 for debugging
-            conversation_history, assistant_response = self.format_conversation_for_judge(message_log)
-            judge_prompt = self.judge_prompt_template.format(
-                conversation_history=conversation_history,
-                assistant_response=assistant_response
-            )
-            print(f"\n--- Judge Input {i+1} ---")
-            print(f"PROMPT:\n{judge_prompt}")
-            print("-" * 40)
+        # print(f"📊 Judging {len(message_logs)} conversations")
+        # for i, message_log in enumerate(message_logs[:3]):  # Show first 3 for debugging
+        #     conversation_history, assistant_response = self.format_conversation_for_judge(message_log)
+        #     judge_prompt = self.judge_prompt_template.format(
+        #         conversation_history=conversation_history,
+        #         assistant_response=assistant_response
+        #     )
+        #     print(f"\n--- Judge Input {i+1} (Turn {turn_counts[i]}) ---")
+        #     print(f"PROMPT:\n{judge_prompt[:300]}...")
+        #     print("-" * 40)
 
         # Preprocess the message logs into judge prompts
         judge_data = self.preprocess_data(message_logs)
 
         # Generate judge responses using VLLM generation worker
-        print(f"🔧 Generating judge responses with VllmGeneration controller")
-        print(f"   Input shape: {judge_data['input_ids'].shape}")
-        print(f"   Input lengths (first 5): {judge_data['input_lengths'][:5].tolist()}")
-        print(f"   First input decoded: {self.tokenizer.decode(judge_data['input_ids'][0][:judge_data['input_lengths'][0]], skip_special_tokens=False)[:200]}...")
-        print(f"   Temperature: {self.llm_judge_generator.cfg.get('temperature', 'N/A')}")
-        print(f"   Max new tokens: {self.llm_judge_generator.cfg.get('max_new_tokens', 'N/A')}")
-        print(f"   Stop token IDs: {self.llm_judge_generator.cfg.get('stop_token_ids', 'N/A')}")
+        # print(f"🔧 Generating judge responses with VllmGeneration controller")
+        # print(f"   Input shape: {judge_data['input_ids'].shape}")
+        # print(f"   Input lengths (first 5): {judge_data['input_lengths'][:5].tolist()}")
         judge_responses = self.llm_judge_generator.generate(judge_data)
-
-        # Debug: Check first output more carefully
-        print(f"\n🔍 VLLM OUTPUT DEBUG:")
-        print(f"   First output_ids (first 20): {judge_responses['output_ids'][0][:20].tolist()}")
-        print(f"   First output_ids (last 20): {judge_responses['output_ids'][0][-20:].tolist()}")
-        print(f"   Unpadded sequence lengths (first 5): {judge_responses.get('unpadded_sequence_lengths', torch.tensor([]))[:5].tolist()}")
 
         # Decode output_ids to text using tokenizer
         output_ids = judge_responses["output_ids"]
         generation_lengths = judge_responses["generation_lengths"]
         unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
 
-        # Debug: Print shape and first few generation lengths
-        print(f"\n🔍 DEBUG INFO:")
-        print(f"  output_ids shape: {output_ids.shape if hasattr(output_ids, 'shape') else 'N/A'}")
-        print(f"  generation_lengths shape: {generation_lengths.shape if hasattr(generation_lengths, 'shape') else 'N/A'}")
-        print(f"  First 5 generation_lengths: {generation_lengths[:5].tolist() if hasattr(generation_lengths, '__getitem__') else generation_lengths[:5]}")
-        print(f"  First 5 unpadded_sequence_lengths: {unpadded_sequence_lengths[:5].tolist() if unpadded_sequence_lengths is not None else 'N/A'}")
-
         # Parse scores from judge responses
         rewards = []
-        print(f"\n📝 LLM Judge Responses:")
+        # print(f"\n📝 LLM Judge Responses:")
         for i in range(len(output_ids)):
             # Extract only the generated tokens (not the input prompt)
-            # Use unpadded_sequence_length to get the actual end of generation (before padding)
             gen_len = int(generation_lengths[i])
             if unpadded_sequence_lengths is not None:
                 unpadded_len = int(unpadded_sequence_lengths[i])
-                # Extract from (unpadded_len - gen_len) to unpadded_len
                 input_len = unpadded_len - gen_len
                 generated_tokens = output_ids[i][input_len:unpadded_len]
             else:
-                # Fallback to old method
                 generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
 
             # Decode to text
@@ -495,29 +871,62 @@ Respond with:
 
             score = self.parse_judge_response(response)
             rewards.append(score)
-            if i < 10:  # Show first 10 responses
-                print(f"  Response {i+1}: gen_len={gen_len}, tokens={generated_tokens[:20].tolist() if len(generated_tokens) > 0 else []}, text='{response}' -> Score: {score}")
+            # if i < 10:  # Show first 10 responses
+            #     print(f"  Response {i+1} (Turn {turn_counts[i]}): Score: {score:.2f}")
 
         rewards = torch.tensor(rewards, dtype=torch.float32)
 
-        print(f"\n📊 Reward Statistics:")
-        print(f"  Mean: {rewards.mean():.3f}")
-        print(f"  Std:  {rewards.std():.3f}")
-        print(f"  Min:  {rewards.min():.3f}")
-        print(f"  Max:  {rewards.max():.3f}")
-        print("=" * 60)
+        # print(f"\n📊 Reward Statistics:")
+        # print(f"  Mean: {rewards.mean():.3f}")
+        # print(f"  Std:  {rewards.std():.3f}")
+        # print(f"  Min:  {rewards.min():.3f}")
+        # print(f"  Max:  {rewards.max():.3f}")
 
-        # Create observations with meaningful content based on rewards
+        # Determine if conversations should continue (multi-turn mode)
         observations = []
-        for i, reward in enumerate(rewards):
-            content = "Environment: " + str(float(reward))
-            observations.append({"role": "environment", "content": content})
+        terminateds = []
+        updated_metadata = []
 
-        # All episodes terminate after one step in LLM judge environment
-        terminateds = [True] * len(message_logs)
+        if self.multi_turn_enabled:
+            # print(f"\n🔄 Multi-turn mode: Processing turn continuation")
 
-        # No additional metadata
-        metadata = [None] * len(message_logs)
+            # Generate next user messages for non-terminated conversations
+            user_messages = self.generate_user_messages(message_logs)
+
+            for i in range(len(message_logs)):
+                turn_count = turn_counts[i]
+                should_terminate = turn_count >= self.max_conversation_turns
+
+                if should_terminate:
+                    # Terminate: return reward as observation
+                    observations.append({
+                        "role": "environment",
+                        "content": f"[Conversation ended after {turn_count} turns. Final score: {float(rewards[i]):.2f}]"
+                    })
+                    terminateds.append(True)
+                    updated_metadata.append({"turn_count": turn_count, "terminated": True})
+                else:
+                    # Continue: return next user message (will be tokenized with generation prompt in rollouts)
+                    observations.append({
+                        "role": "user",
+                        "content": user_messages[i]
+                    })
+                    terminateds.append(False)
+                    updated_metadata.append({"turn_count": turn_count + 1, "terminated": False})
+
+            # print(f"  Continuing: {sum(1 for t in terminateds if not t)}/{len(terminateds)} conversations")
+            # print(f"  Terminating: {sum(terminateds)}/{len(terminateds)} conversations")
+        else:
+            # Single-turn mode: always terminate
+            for i, reward in enumerate(rewards):
+                observations.append({
+                    "role": "environment",
+                    "content": "Environment: " + str(float(reward))
+                })
+                terminateds.append(True)
+                updated_metadata.append(None)
+
+        #print("=" * 60)
 
         # No stop strings needed
         next_stop_strings = [None] * len(message_logs)
@@ -526,7 +935,156 @@ Respond with:
 
         return EnvironmentReturn(
             observations=observations,
-            metadata=metadata,
+            metadata=updated_metadata,
+            next_stop_strings=next_stop_strings,
+            rewards=rewards.cpu(),
+            terminateds=torch.tensor(terminateds, dtype=torch.bool).cpu(),
+            answers=answers,
+        )
+
+    async def step_async(
+        self,
+        message_logs: List[LLMMessageLogType],
+        env_infos: List[Dict[str, Any]],
+    ) -> EnvironmentReturn:
+        """Async version of step method for use with async_engine=True.
+
+        This method is identical to step() but uses async generation methods.
+        """
+        # print("\n🤖 LLM JUDGE EVALUATION STARTED")
+        # print("=" * 60)
+
+        # Initialize or retrieve turn counts from metadata
+        turn_counts = []
+        for i, env_info in enumerate(env_infos):
+            if env_info is None:
+                turn_counts.append(1)
+            else:
+                turn_counts.append(env_info.get("turn_count", 1))
+
+        # Show sample conversations being judged
+        # print(f"📊 Judging {len(message_logs)} conversations")
+        # for i, message_log in enumerate(message_logs[:3]):  # Show first 3 for debugging
+        #     conversation_history, assistant_response = self.format_conversation_for_judge(message_log)
+        #     judge_prompt = self.judge_prompt_template.format(
+        #         conversation_history=conversation_history,
+        #         assistant_response=assistant_response
+        #     )
+        #     print(f"\n--- Judge Input {i+1} (Turn {turn_counts[i]}) ---")
+        #     print(f"PROMPT:\n{judge_prompt[:300]}...")
+        #     print("-" * 40)
+
+        # Preprocess the message logs into judge prompts
+        judge_data = self.preprocess_data(message_logs)
+
+        # Generate judge responses using async VLLM generation
+        # print(f"🔧 Generating judge responses with VllmGeneration controller (async)")
+        # print(f"   Input shape: {judge_data['input_ids'].shape}")
+        # print(f"   Input lengths (first 5): {judge_data['input_lengths'][:5].tolist()}")
+
+        # Use async generation method - collect all results from the async generator
+        collected_indexed_outputs = []
+        async for original_idx, result_batch in self.llm_judge_generator.generate_async(judge_data):
+            collected_indexed_outputs.append((original_idx, result_batch))
+
+        # Sort by original_idx to ensure order matches input
+        collected_indexed_outputs.sort(key=lambda x: x[0])
+
+        # Extract in correct order and merge into a single BatchedDataDict
+        ordered_batches = [item for _, item in collected_indexed_outputs]
+        judge_responses = BatchedDataDict.from_batches(
+            ordered_batches,
+            pad_value_dict={"output_ids": self.tokenizer.pad_token_id}
+        )
+
+        # Decode output_ids to text using tokenizer
+        output_ids = judge_responses["output_ids"]
+        generation_lengths = judge_responses["generation_lengths"]
+        unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
+
+        # Parse scores from judge responses
+        rewards = []
+        # print(f"\n📝 LLM Judge Responses:")
+        for i in range(len(output_ids)):
+            # Extract only the generated tokens (not the input prompt)
+            gen_len = int(generation_lengths[i])
+            if unpadded_sequence_lengths is not None:
+                unpadded_len = int(unpadded_sequence_lengths[i])
+                input_len = unpadded_len - gen_len
+                generated_tokens = output_ids[i][input_len:unpadded_len]
+            else:
+                generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+
+            # Decode to text
+            response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+            score = self.parse_judge_response(response)
+            rewards.append(score)
+            # if i < 10:  # Show first 10 responses
+            #     print(f"  Response {i+1} (Turn {turn_counts[i]}): Score: {score:.2f}")
+
+        rewards = torch.tensor(rewards, dtype=torch.float32)
+
+        # print(f"\n📊 Reward Statistics:")
+        # print(f"  Mean: {rewards.mean():.3f}")
+        # print(f"  Std:  {rewards.std():.3f}")
+        # print(f"  Min:  {rewards.min():.3f}")
+        # print(f"  Max:  {rewards.max():.3f}")
+
+        # Determine if conversations should continue (multi-turn mode)
+        observations = []
+        terminateds = []
+        updated_metadata = []
+
+        if self.multi_turn_enabled:
+            # print(f"\n🔄 Multi-turn mode: Processing turn continuation")
+
+            # Generate next user messages for non-terminated conversations (async)
+            user_messages = await self.generate_user_messages_async(message_logs)
+
+            for i in range(len(message_logs)):
+                turn_count = turn_counts[i]
+                should_terminate = turn_count >= self.max_conversation_turns
+
+                if should_terminate:
+                    # Terminate: return reward as observation
+                    observations.append({
+                        "role": "environment",
+                        "content": f"[Conversation ended after {turn_count} turns. Final score: {float(rewards[i]):.2f}]"
+                    })
+                    terminateds.append(True)
+                    updated_metadata.append({"turn_count": turn_count, "terminated": True})
+                else:
+                    # Continue: return next user message (will be tokenized with generation prompt in rollouts)
+                    observations.append({
+                        "role": "user",
+                        "content": user_messages[i]
+                    })
+                    terminateds.append(False)
+                    updated_metadata.append({"turn_count": turn_count + 1, "terminated": False})
+
+            # print(f"  Continuing: {sum(1 for t in terminateds if not t)}/{len(terminateds)} conversations")
+            # print(f"  Terminating: {sum(terminateds)}/{len(terminateds)} conversations")
+        else:
+            # Single-turn mode: always terminate
+            for i, reward in enumerate(rewards):
+                observations.append({
+                    "role": "environment",
+                    "content": "Environment: " + str(float(reward))
+                })
+                terminateds.append(True)
+                updated_metadata.append(None)
+
+        #print("=" * 60)
+
+        # No stop strings needed
+        next_stop_strings = [None] * len(message_logs)
+
+        answers = [message_log[-1]["content"] for message_log in message_logs]
+
+        return EnvironmentReturn(
+            observations=observations,
+            metadata=updated_metadata,
             next_stop_strings=next_stop_strings,
             rewards=rewards.cpu(),
             terminateds=torch.tensor(terminateds, dtype=torch.bool).cpu(),
@@ -575,11 +1133,11 @@ Respond with:
         return batch, metrics
 
     def shutdown(self):
-        """Shutdown the LLM judge worker and virtual cluster.
+        """Shutdown the LLM judge worker, user LLM worker, and virtual cluster.
 
         This method properly cleans up resources by shutting down the LLM judge
-        policy and virtual cluster. It should be called when the environment is
-        no longer needed to prevent resource leaks.
+        policy, user LLM policy, and virtual cluster. It should be called when
+        the environment is no longer needed to prevent resource leaks.
 
         Note:
             The environment will also automatically call this method in its destructor,
@@ -594,11 +1152,33 @@ Respond with:
             except Exception as e:
                 print(f"Warning: Error shutting down LLM judge generator: {e}")
             self.llm_judge_generator = None
+
+        if (
+            hasattr(self, "user_llm_generator")
+            and self.user_llm_generator is not None
+        ):
             try:
-                self.virtual_cluster.shutdown()
+                self.user_llm_generator.shutdown()
             except Exception as e:
-                print(f"Warning: Error shutting down virtual cluster: {e}")
-            self.virtual_cluster = None
+                print(f"Warning: Error shutting down User LLM generator: {e}")
+            self.user_llm_generator = None
+
+        if hasattr(self, "judge_virtual_cluster") and self.judge_virtual_cluster is not None:
+            try:
+                self.judge_virtual_cluster.shutdown()
+            except Exception as e:
+                print(f"Warning: Error shutting down judge virtual cluster: {e}")
+            self.judge_virtual_cluster = None
+
+        if hasattr(self, "user_virtual_cluster") and self.user_virtual_cluster is not None:
+            try:
+                self.user_virtual_cluster.shutdown()
+            except Exception as e:
+                print(f"Warning: Error shutting down user virtual cluster: {e}")
+            self.user_virtual_cluster = None
+
+        # Clean up backward compatibility reference
+        self.virtual_cluster = None
 
     def __del__(self):
         """Destructor that ensures proper cleanup when the object is garbage collected.

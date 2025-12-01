@@ -1,24 +1,24 @@
 #!/bin/bash
-# SLURM batch script for NeMo RL Multi-Node GRPO Training with Mind Verifiable Environment
-# 5 nodes with 8 GPUs each for Qwen3-30B-A3B model
+# SLURM batch script for NeMo RL Multi-Node GRPO Training with Multi-turn LLM Judge
+# 5 nodes with 8 GPUs each
 
-#SBATCH --job-name=nemo-rl-grpo-qwen30ba3b-mind-verifiable
-#SBATCH --nodes=4
+#SBATCH --job-name=nemo-rl-grpo-mind-qwen4b-llm-judge-multiturn
+#SBATCH --nodes=5
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128
-#SBATCH --time=240:00:00
-#SBATCH --output=slurm_logs/nemo-rl-grpo-qwen30ba3b-mind-verifiable-%j.out
-#SBATCH --error=slurm_logs/nemo-rl-grpo-qwen30ba3b-mind-verifiable-%j.err
+#SBATCH --time=72:00:00
+#SBATCH --output=slurm_logs/nemo-rl-grpo-mind-qwen4b-llm-judge-multiturn-%j.out
+#SBATCH --error=slurm_logs/nemo-rl-grpo-mind-qwen4b-llm-judge-multiturn-%j.err
 
 # Create a script that will be executed on each node via srun (in shared location)
-cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_mind_verifiable.sh << 'WORKER_SCRIPT_EOF'
+cat > /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_grpo_qwen4b_llm_judge_multiturn.sh << 'WORKER_SCRIPT_EOF'
 #!/bin/bash
 
 # 1. SET UP DISTRIBUTED ENVIRONMENT VARIABLES FOR SLURM
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_PORT=29400
-export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1, 2, 3, 4)
+export NODE_RANK=$SLURM_NODEID            # The rank of the current node (0, 1, 2, ..., 4)
 
 # This variable holds the number of GPUs per node
 GPUS_PER_NODE=8
@@ -44,7 +44,6 @@ export HF_DATASETS_CACHE="/mnt/data/shared/cache"
 export WANDB_MODE=offline
 export TOKENIZERS_PARALLELISM=false
 export TORCH_NCCL_ENABLE_MONITORING=0
-export NRL_VLLM_ASYNC_TIMEOUT_SECONDS=2400
 
 # Force Python to show all output immediately
 export PYTHONUNBUFFERED=1
@@ -90,6 +89,9 @@ export RAY_gcs_rpc_server_reconnect_timeout_s=120
 export RAY_TIMEOUT_MS=300000  # 5 minutes
 export RAY_REDIS_START_RETRIES=20
 
+# VLLM async timeout for long sequences
+export NRL_VLLM_ASYNC_TIMEOUT_SECONDS=2400  # 40 minutes
+
 # 4. START RAY CLUSTER
 echo "Starting Ray cluster setup on node $NODE_RANK with $GPUS_PER_NODE GPUs. Master is at $MASTER_ADDR:$MASTER_PORT."
 
@@ -98,9 +100,9 @@ if [ "$NODE_RANK" -eq 0 ]; then
     uv run ray start --head --disable-usage-stats
     echo "Ray head started successfully"
 
-    # Wait for worker nodes to connect (longer wait for 5 nodes)
+    # Wait for worker nodes to connect
     echo "Waiting for worker nodes to connect..."
-    sleep 35
+    sleep 30  # Longer wait for 5 nodes
 
 else
     echo "=== Starting Ray WORKER node ==="
@@ -115,30 +117,23 @@ fi
 
 # 5. EXECUTE THE TRAINING JOB (only on head node)
 if [ "$NODE_RANK" -eq 0 ]; then
-    echo "=== Starting NeMo RL GRPO Training with Mind Verifiable Environment ==="
+    echo "=== Starting NeMo RL GRPO Training with Multi-turn LLM Judge ==="
 
     # Create a detailed log with timestamps and node info
     LOG_DIR="/home/pmartins/nemo-rl/slurm_logs/$(date +%Y%m%d)"
     mkdir -p "$LOG_DIR"
-    LOG_FILE="$LOG_DIR/grpo_qwen30ba3b_mind_verifiable_node_${NODE_RANK}_$(date +%H%M%S).log"
+    LOG_FILE="$LOG_DIR/grpo_qwen4b_mind_llm_judge_multiturn_node_${NODE_RANK}_$(date +%H%M%S).log"
 
-    echo "📊 Starting GRPO training with mind verifiable environment on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
-    echo "🧠 Using MindVerifiableEnvironment with Qwen3-30B-A3B model:" | tee -a "$LOG_FILE"
-    echo "   - Model: Qwen3-30B-A3B (30B parameters with MoE architecture)" | tee -a "$LOG_FILE"
-    echo "   - Parallelization: TP=4, EP=8, nodes=6" | tee -a "$LOG_FILE"
-    echo "   - Math reward: Verifies answers in 'Answer: <answer>' format" | tee -a "$LOG_FILE"
-    echo "   - IFEval reward: Verifies instruction-following constraints (54 instruction types)" | tee -a "$LOG_FILE"
-    echo "   - Routing: Based on 'dataset' field (math or ifeval)" | tee -a "$LOG_FILE"
+    echo "🤖 Starting GRPO training with Multi-turn LLM Judge on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
 
     # Run with detailed logging and real-time output
-    uv run python examples/run_grpo_mind_verifiable.py \
-        --config examples/configs/recipes/llm/grpo-qwen30ba3b-mind-verifiable.yaml \
+    uv run python examples/run_grpo_llm_judge.py \
+        --config examples/configs/recipes/llm/grpo-qwen4b-mind-llm-judge-multiturn.yaml \
         2>&1 | tee -a "$LOG_FILE"
 
     TRAINING_EXIT_CODE=$?
 
-    echo "=== GRPO training completed with exit code $TRAINING_EXIT_CODE ===" | tee -a "$LOG_FILE"
-    echo "📊 Training finished on node $NODE_RANK at $(date)" | tee -a "$LOG_FILE"
+    echo "=== GRPO training completed with exit code $TRAINING_EXIT_CODE ==="
 
     # Shutdown Ray cluster
     echo "=== Shutting down Ray cluster ==="
@@ -159,15 +154,14 @@ fi
 WORKER_SCRIPT_EOF
 
 # Make the worker script executable
-chmod +x /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_mind_verifiable.sh
+chmod +x /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_grpo_qwen4b_llm_judge_multiturn.sh
 
-echo "=== Starting Multi-Node SLURM Job for GRPO Mind Verifiable Training ==="
+echo "=== Starting Multi-Node GRPO SLURM Job with Multi-turn LLM Judge ==="
 echo "Job ID: $SLURM_JOB_ID"
 echo "Nodes: $SLURM_JOB_NUM_NODES"
 echo "Node list: $SLURM_JOB_NODELIST"
-echo "🧠 Training Qwen3-30B-A3B with MindVerifiableEnvironment and custom reward functions"
 
 # Launch the worker script on all nodes simultaneously using srun
-srun --ntasks-per-node=1 /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_qwen30ba3b_mind_verifiable.sh
+srun --ntasks-per-node=1 /home/pmartins/nemo-rl/examples/configs/recipes/llm/slurm/slurm_multinode_worker_grpo_qwen4b_llm_judge_multiturn.sh
 
-echo "=== Multi-Node GRPO Mind Verifiable Job Completed ==="
+echo "=== Multi-Node GRPO Job Completed ==="

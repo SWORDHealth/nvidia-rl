@@ -293,6 +293,9 @@ def setup(
     reward_model_enabled = (
         "reward_model" in env_configs and env_configs["reward_model"]["enabled"]
     )
+    llm_judge_enabled = (
+        "llm_judge" in env_configs and env_configs["llm_judge"]["enabled"]
+    )
 
     total_nodes = cluster_config["num_nodes"]
     if reward_model_enabled:
@@ -303,13 +306,26 @@ def setup(
         rm_nodes = 0
         rm_gpus_per_node = 0
 
+    # Account for LLM judge nodes (judge + optional user LLM for multi-turn)
+    if llm_judge_enabled:
+        llm_judge_resource = env_configs["llm_judge"]["generation"]["colocated"]["resources"]
+        llm_judge_nodes = llm_judge_resource["num_nodes"]
+
+        # If multi-turn enabled with user LLM, reserve additional node
+        if env_configs["llm_judge"].get("user_llm") is not None:
+            user_llm_resource = env_configs["llm_judge"]["user_llm"]["generation"]["colocated"]["resources"]
+            llm_judge_nodes += user_llm_resource["num_nodes"]
+            print(f"  ℹ Multi-turn mode: reserving {llm_judge_resource['num_nodes']} node(s) for judge + {user_llm_resource['num_nodes']} node(s) for user LLM")
+    else:
+        llm_judge_nodes = 0
+
     if total_nodes == 1:
         policy_nodes = total_nodes
     else:
-        policy_nodes = total_nodes - rm_nodes
+        policy_nodes = total_nodes - rm_nodes - llm_judge_nodes
         assert policy_nodes > 0, (
             "policy_nodes must be > 0, but got "
-            f"policy_nodes:{policy_nodes} + rm_nodes:{rm_nodes} = total_nodes:{total_nodes}"
+            f"policy_nodes:{policy_nodes} = total_nodes:{total_nodes} - rm_nodes:{rm_nodes} - llm_judge_nodes:{llm_judge_nodes}"
         )
 
     if colocated_inference:
