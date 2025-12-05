@@ -1,0 +1,169 @@
+sft:
+  max_num_epochs: 2
+  max_num_steps: 1000000
+  val_period: -1  # Disable validation
+  val_batches: 8
+  val_global_batch_size: 32
+  val_micro_batch_size: 1
+  val_at_start: false
+  seed: 42
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: /mnt/data/pmartins/nemo_rl_ckpts/sft_mind_qwen30ba3b_thinking_mind_expert_8k_2111_bs16_
+  metric_name: val:val_loss
+  higher_is_better: false
+  keep_top_k: 20
+  save_period: 260  
+  # save_every_epoch: true  # Save checkpoint at the end of every epoch
+  checkpoint_must_save_by: null 
+
+policy:
+  model_name: "/mnt/data/shared/models/Qwen3-30B-A3B-Thinking-2507"
+  tokenizer:
+    name: ${policy.model_name}
+  train_global_batch_size: 16
+  train_micro_batch_size: 1
+  max_total_sequence_length: 2048
+  precision: bfloat16
+
+  offload_optimizer_for_logprob: false
+  
+  dtensor_cfg:
+    enabled: true
+    env_vars: {}
+    cpu_offload: false
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 4
+    context_parallel_size: 1
+    custom_parallel_plan: null
+    
+  dynamic_batching:
+    enabled: false
+    
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
+    algorithm: "modified_first_fit_decreasing"
+    sequence_length_round: 64
+    
+  make_sequence_length_divisible_by: ${policy.megatron_cfg.tensor_model_parallel_size}
+  max_grad_norm: 1
+  optimizer:
+    name: "torch.optim.AdamW"
+    kwargs:
+      lr: 2e-5
+      weight_decay: 0.01
+      betas: [0.9, 0.98]
+      eps: 1e-5
+      foreach: False
+      fused: False
+  
+  megatron_cfg:
+    enabled: false
+    empty_unused_memory_level: 1
+    activation_checkpointing: 'false'
+    converter_type: "LlamaForCausalLM"
+    tensor_model_parallel_size: 1
+    expert_tensor_parallel_size: 1
+    expert_model_parallel_size: 8
+    pipeline_model_parallel_size: 1
+    sequence_parallel: false
+    context_parallel_size: 1
+    pipeline_dtype: ${policy.precision}
+    num_layers_in_first_pipeline_stage: null
+    num_layers_in_last_pipeline_stage: null
+    freeze_moe_router: false
+    moe_router_dtype: null
+    moe_router_load_balancing_type: "none"
+    moe_router_bias_update_rate: 1e-3
+    moe_permute_fusion: false
+    moe_token_dispatcher_type: "allgather"
+    moe_grouped_gemm: true
+    apply_rope_fusion: True
+    tp_comm_overlap: true
+    ep_comm_overlap: true
+    use_flash_attention: true
+    use_fused_rmsnorm: true
+    # num_layers_per_virtual_pipeline_stage: 12
+    bias_activation_fusion: True
+    defer_fp32_logits: False
+
+    optimizer:
+      optimizer: "adam"
+      lr: 2e-5
+      min_lr: 2.0e-6
+      weight_decay: 0.01
+      bf16: true
+      fp16: false
+      params_dtype: "float32"
+
+      adam_beta1: 0.9
+      adam_beta2: 0.98
+      adam_eps: 1e-8
+
+      use_distributed_optimizer: true
+      use_precision_aware_optimizer: true
+
+      optimizer_cpu_offload: false
+      optimizer_offload_fraction: 0.0
+
+      clip_grad: ${policy.max_grad_norm}
+      
+    scheduler:
+      start_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
+      end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
+      weight_decay_incr_style: "constant"
+      lr_decay_style: "cosine"
+      lr_decay_iters: 260 
+      lr_warmup_iters: 26
+      lr_warmup_init: 0
+      
+    distributed_data_parallel_config:
+      grad_reduce_in_fp32: false
+      overlap_grad_reduce: true
+      overlap_param_gather: true
+      average_in_collective: true
+      data_parallel_sharding_strategy: "optim_grads_params"
+
+    env_vars:
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"
+
+data:
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  dataset_name: swordhealth/Dawn-Gym-Chat-SFT-3010  #/mnt/data/pmartins/data/merged_datasets/Mind-SFT-merged-gym-task-2111
+  data_cls: mind
+  prompt_file: null
+  split: "train"
+  add_bos: true
+  add_eos: true
+  add_generation_prompt: false
+  shuffle: true
+  num_workers: 8
+  seed: 42
+  only_unmask_final: true
+  roles_to_train_on: ["assistant"]
+
+logger:
+  log_dir: logs/sft_mind_qwen30ba3b_thinking_mind_expert_8k_2111_bs16
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 0
+  wandb:
+    project: nemo-rl
+    name: sft_mind_qwen30ba3b_thinking_mind_expert_8k_2111_bs16
+  tensorboard:
+    log_dir: sft_mind_qwen30ba3b_thinking_mind_expert_8k_2111_bs16
+
+
+  gpu_monitoring:
+    collection_interval: 10
+    flush_interval: 10
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1

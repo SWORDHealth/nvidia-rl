@@ -154,18 +154,7 @@ Respond with:
             print("🔄 Multi-turn mode ENABLED with user LLM")
             self.user_prompt_template = self.config["user_llm"].get(
                 "prompt_template",
-                """You are simulating a user in a mental health conversation with an AI assistant.
-
-Conversation History:
-{conversation_history}
-
-Generate the next user message that:
-1. Responds naturally to the assistant's last message
-2. Continues exploring your feelings or situation
-3. May introduce new topics, ask follow-up questions, or express emotions
-4. Maintains consistency with the conversation context
-
-Generate only the user's next message, nothing else."""
+                """"""
             )
             self.max_conversation_turns = self.config["user_llm"].get("max_turns", 5)
             print(f"   Max conversation turns: {self.max_conversation_turns}")

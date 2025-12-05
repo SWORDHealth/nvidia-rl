@@ -7,7 +7,7 @@ policy:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
   train_global_batch_size: 16
   train_micro_batch_size: 1
-  max_total_sequence_length: 1024
+  max_total_sequence_length: 2048
   precision: "bfloat16"
 
   sequence_packing:
@@ -23,7 +23,8 @@ checkpointing:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: "clevr_cogent"
+  dataset_name: "/mnt/data/mmfreitas/MedPix-VQA/data"
+  data_cls: "medpix_vqa"
   add_bos: true
   add_eos: true
   add_generation_prompt: false
@@ -45,5 +46,5 @@ logger:
     flush_interval: 10  # How often to flush GPU usage metrics to the loggers (in seconds)
 
 cluster:
-  gpus_per_node: 2
+  gpus_per_node: 8
   num_nodes: 1

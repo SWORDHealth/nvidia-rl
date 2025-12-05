@@ -3,7 +3,7 @@
 # 4 nodes with 8 GPUs each
 
 #SBATCH --job-name=nemo-rl-sft-mind-qwen30ba3b-thinking-mind-expert
-#SBATCH --nodes=4
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=128

@@ -72,12 +72,10 @@ class MindGRPODataset:
         else:
             train_ds = formatted_ds
 
-        # Split the dataset
-        split_ds = train_ds.train_test_split(test_size=val_split_ratio, seed=42)
-
+        # Use entire dataset for training (no split)
         self.formatted_ds = {
-            'train': split_ds['train'],
-            'validation': split_ds['test']
+            'train': train_ds,
+            'validation': train_ds  # Use same data for validation
         }
 
         self.task_spec = TaskDataSpec(

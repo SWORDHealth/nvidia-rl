@@ -26,6 +26,7 @@ from nemo_rl.algorithms.utils import get_tokenizer
 from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, load_response_dataset
 from nemo_rl.data.datasets.response_datasets.mind import MindDataset
+from nemo_rl.data.datasets.response_datasets.medpix import MedPixVQADataset
 from nemo_rl.data.interfaces import DatumSpec, TaskDataSpec
 from nemo_rl.data.llm_message_utils import get_formatted_message_log
 from nemo_rl.distributed.virtual_cluster import init_ray
@@ -108,6 +109,13 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
             data_config["dataset_name"],
             data_config["seed"],
         )
+    elif data_cls == "clevr_cogent":
+        data = load_response_dataset(data_config, seed)
+    elif data_cls == "medpix_vqa":
+        data = MedPixVQADataset(
+            data_config["dataset_name"],
+        )
+
     else:
         raise ValueError(f"Unknown dataset class: {data_cls}")
     print(
@@ -129,6 +137,12 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
         )
 
         datum_preprocessor = partial(format_clevr_cogent_dataset, return_pil=True)
+    
+    elif data_cls == "medpix_vqa":
+        from nemo_rl.data.datasets.response_datasets.medpix import (
+            format_medpix_vqa_dataset
+        )
+        datum_preprocessor = partial(format_medpix_vqa_dataset, return_pil=True)
 
     train_dataset = AllTaskProcessedDataset(
         train_dataset,
