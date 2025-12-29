@@ -27,6 +27,7 @@ from nemo_rl.data import DataConfig
 from nemo_rl.data.datasets import AllTaskProcessedDataset, load_response_dataset
 from nemo_rl.data.datasets.response_datasets.mind import MindDataset
 from nemo_rl.data.datasets.response_datasets.medpix import MedPixVQADataset
+from nemo_rl.data.datasets.response_datasets.thrive_vlm import ThriveVLMDataset
 from nemo_rl.data.interfaces import DatumSpec, TaskDataSpec
 from nemo_rl.data.llm_message_utils import get_formatted_message_log
 from nemo_rl.distributed.virtual_cluster import init_ray
@@ -34,7 +35,6 @@ from nemo_rl.utils.config import load_config, parse_hydra_overrides
 from nemo_rl.utils.logger import get_next_experiment_dir
 
 OmegaConf.register_new_resolver("mul", lambda a, b: a * b)
-
 
 def parse_args():
     """Parse command line arguments."""
@@ -115,6 +115,10 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
         data = MedPixVQADataset(
             data_config["dataset_name"],
         )
+    elif data_cls == "thrive_vlm":
+        data = ThriveVLMDataset(
+            data_config["dataset_name"],
+        )
 
     else:
         raise ValueError(f"Unknown dataset class: {data_cls}")
@@ -143,6 +147,12 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
             format_medpix_vqa_dataset
         )
         datum_preprocessor = partial(format_medpix_vqa_dataset, return_pil=True)
+
+    elif data_cls == "thrive_vlm":
+        from nemo_rl.data.datasets.response_datasets.thrive_vlm import (
+            format_thrive_vlm_dataset
+        )
+        datum_preprocessor = partial(format_thrive_vlm_dataset, return_pil=True)
 
     train_dataset = AllTaskProcessedDataset(
         train_dataset,

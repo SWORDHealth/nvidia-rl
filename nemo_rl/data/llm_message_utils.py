@@ -549,6 +549,24 @@ def get_images_from_message(message: dict[str, Any]) -> list[Any]:
     return images
 
 
+def get_videos_from_message(message: dict[str, Any]) -> list[Any]:
+    """Get all videos from a message log item."""
+    # Handle None or missing content (e.g., assistant messages with only tool_calls)
+    if message.get("content") is None:
+        return []
+    # Handle string content (no videos)
+    if isinstance(message["content"], str):
+        return []
+    # iterate over the content list
+    videos = []
+    for item in message["content"]:
+        if item["type"] == "video":
+            videos.extend(list(item["video"])) if isinstance(
+                item["video"], (list, tuple)
+            ) else videos.append(item["video"])
+    return videos
+
+
 def get_formatted_message_log(
     message_log: LLMMessageLogType,
     tokenizer: TokenizerType,
@@ -696,26 +714,58 @@ def get_formatted_message_log(
                 elif not stripped_message_chunk.endswith(tokenizer.eos_token):
                     message_chunk += tokenizer.eos_token
 
-        # get images too (extend this for other modalities)
+        # get images and videos (extend this for other modalities)
         images_cur_message = get_images_from_message(message)
+        videos_cur_message = get_videos_from_message(message)
 
         new_message = message.copy()
-        # extend this if statement to check for all(len(modality)) == 0 when adding other modalities
-        if len(images_cur_message) == 0:
+        # check if we have any multimodal content
+        if len(images_cur_message) == 0 and len(videos_cur_message) == 0:
             new_message["token_ids"] = tokenizer(
                 text=message_chunk, return_tensors="pt", add_special_tokens=False
             )["input_ids"][0]
         else:
-            # extend the else statement to add other modalities (in this case, tokenizer will be a processor)
-            processed_chunk = tokenizer(
-                text=[message_chunk],
-                images=images_cur_message,
-                return_tensors="pt",
-                add_special_tokens=False,
-            )
+            if len(videos_cur_message) > 0 and hasattr(tokenizer, 'apply_chat_template'):
+                video_metadata_from_content = None
+                for item in message.get("content", []):
+                    if isinstance(item, dict) and item.get("type") == "video":
+                        video_metadata_from_content = item.get("video_metadata")
+                        if video_metadata_from_content is not None:
+                            break
+
+                # Build videos_kwargs with metadata
+                videos_kwargs_dict = {
+                    "do_sample_frames": False,
+                }
+                if video_metadata_from_content is not None:
+                    # Pass as list for proper batching by the video processor
+                    videos_kwargs_dict["video_metadata"] = [video_metadata_from_content]
+
+                processed_chunk = tokenizer.apply_chat_template(
+                    [message],
+                    tokenize=True,
+                    return_tensors="pt",
+                    add_special_tokens=False,
+                    return_dict=True,
+                    videos_kwargs=videos_kwargs_dict,
+                )
+            else:
+                # Fallback for images-only or processors without apply_chat_template
+                processor_kwargs = {
+                    "text": [message_chunk],
+                    "return_tensors": "pt",
+                    "add_special_tokens": False,
+                }
+                if len(images_cur_message) > 0:
+                    processor_kwargs["images"] = images_cur_message
+                if len(videos_cur_message) > 0:
+                    processor_kwargs["videos"] = videos_cur_message
+
+                processed_chunk = tokenizer(**processor_kwargs)
+
             new_message["token_ids"] = processed_chunk["input_ids"][0]
 
-            # add all vlm keys to the message
+            # add all vlm keys to the message (including video-related keys)
             for key in multimodal_keys:
                 if key in processed_chunk:
                     new_message[key] = PackedTensor(processed_chunk[key], dim_to_pack=0)

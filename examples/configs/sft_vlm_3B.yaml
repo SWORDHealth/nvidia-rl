@@ -23,7 +23,7 @@ checkpointing:
 
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
-  dataset_name: "/mnt/data/mmfreitas/MedPix-VQA/data"
+  dataset_name: "mmoukouba/MedPix-VQA"
   data_cls: "medpix_vqa"
   add_bos: true
   add_eos: true
