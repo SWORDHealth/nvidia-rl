@@ -119,6 +119,7 @@ class GRPOConfig(TypedDict):
     max_num_steps: int
     max_rollout_turns: int
     normalize_rewards: bool
+    normalize_by_std: NotRequired[bool]  # If False, only mean-center rewards (no std division)
     use_leave_one_out_baseline: bool
     val_period: int
     val_batch_size: int
@@ -160,6 +161,411 @@ def _default_grpo_save_state() -> GRPOSaveState:
         "total_valid_tokens": 0,
         "val_reward": -99999999.0,
     }
+
+
+def print_rollout_summary_table(
+    repeated_batch: BatchedDataDict,
+    num_prompts: int,
+    num_generations_per_prompt: int,
+) -> None:
+    """Print per-prompt rollout summary table.
+
+    Groups samples by prompt and shows aggregated statistics:
+    - Max turns (from config/dataset)
+    - Average turns reached across generations
+    - Average reward and std dev
+    - Termination breakdown (N=natural, M=max_turns, T=truncated)
+    """
+    # Extract per-sample data
+    rewards = repeated_batch["total_reward"]
+    turn_counts = repeated_batch.get("turn_counts")
+    terminated = repeated_batch.get("terminated")
+    truncated = repeated_batch.get("truncated")
+    max_turns_reached = repeated_batch.get("max_turns_reached")
+    extra_env_infos = repeated_batch.get("extra_env_info", [])
+
+    # Check if we have the necessary data
+    if turn_counts is None:
+        print("⚠️ Rollout summary table unavailable (turn_counts not tracked)", flush=True)
+        return
+
+    batch_size = len(rewards)
+
+    # Build table rows
+    rows = []
+    for prompt_idx in range(num_prompts):
+        start_idx = prompt_idx * num_generations_per_prompt
+        end_idx = start_idx + num_generations_per_prompt
+
+        # Get per-generation data for this prompt
+        prompt_rewards = rewards[start_idx:end_idx].float()
+        prompt_turns = turn_counts[start_idx:end_idx].float()
+
+        # Get max_turns from extra_env_info (use first sample in group, all should be same)
+        max_turns = None
+        if extra_env_infos and len(extra_env_infos) > start_idx:
+            env_info = extra_env_infos[start_idx]
+            if env_info and isinstance(env_info, dict):
+                max_turns = env_info.get("max_turns")
+
+        # Compute stats
+        avg_reward = prompt_rewards.mean().item()
+        std_reward = prompt_rewards.std().item() if len(prompt_rewards) > 1 else 0.0
+        avg_turns = prompt_turns.mean().item()
+        # Convert normalized reward (-1 to 1) back to raw score (0-10)
+        # Formula: reward = (score - 5) / 5, so score = reward * 5 + 5
+        avg_raw_score = avg_reward * 5.0 + 5.0
+
+        # Termination breakdown (mutually exclusive categories)
+        # Priority: T (truncated) > M (max_turns without natural end) > N (natural end)
+        n_trunc = 0
+        n_max_only = 0
+        n_natural = 0
+
+        for i in range(start_idx, end_idx):
+            is_truncated = truncated[i].item() if truncated is not None else False
+            is_max_turns = max_turns_reached[i].item() if max_turns_reached is not None else False
+            is_terminated = terminated[i].item() if terminated is not None else False
+
+            if is_truncated:
+                # Truncated due to sequence length - highest priority
+                n_trunc += 1
+            elif is_terminated:
+                # Natural termination (may or may not have hit max_turns)
+                n_natural += 1
+            elif is_max_turns:
+                # Hit max_turns without natural termination
+                n_max_only += 1
+
+        term_parts = []
+        if n_natural > 0:
+            term_parts.append(f"{int(n_natural)}N")
+        if n_max_only > 0:
+            term_parts.append(f"{int(n_max_only)}M")
+        if n_trunc > 0:
+            term_parts.append(f"{int(n_trunc)}T")
+        termination_str = "/".join(term_parts) if term_parts else "-"
+
+        rows.append({
+            "prompt": prompt_idx,
+            "max_turns": max_turns if max_turns is not None else "-",
+            "avg_turns": avg_turns,
+            "avg_raw_score": avg_raw_score,
+            "avg_reward": avg_reward,
+            "std_reward": std_reward,
+            "termination": termination_str,
+        })
+
+    # Print table
+    print("\n📊 Rollout Summary (per prompt):", flush=True)
+    print("┌────────┬───────────┬────────────┬───────────┬──────────┬─────────────┐", flush=True)
+    print("│ Prompt │ Max Turns │ Avg Turns  │ Score/10  │ Norm Rew │ Termination │", flush=True)
+    print("├────────┼───────────┼────────────┼───────────┼──────────┼─────────────┤", flush=True)
+    for row in rows:
+        max_t = str(row["max_turns"])[:9].center(9)
+        avg_t = f"{row['avg_turns']:.1f}".center(10)
+        raw_s = f"{row['avg_raw_score']:.1f}".center(9)
+        avg_r = f"{row['avg_reward']:.2f}".center(8)
+        term = row["termination"][:11].center(11)
+        print(f"│ {row['prompt']:>6} │ {max_t} │ {avg_t} │ {raw_s} │ {avg_r} │ {term} │", flush=True)
+    print("└────────┴───────────┴────────────┴───────────┴──────────┴─────────────┘", flush=True)
+    print("Legend: N=natural, M=max_turns, T=truncated | Score/10=raw judge score, Norm Rew=normalized (-1,1)\n", flush=True)
+
+
+def log_truncated_rollouts(
+    repeated_batch: BatchedDataDict,
+    log_dir: str,
+    step: int,
+    max_to_log: int = 10,
+) -> None:
+    """Log truncated rollouts to a file for debugging.
+
+    Writes details of truncated conversations to a log file, including:
+    - Sample index
+    - Turn count when truncation occurred
+    - Total tokens
+    - The conversation messages
+
+    Args:
+        repeated_batch: Batch containing rollout results
+        log_dir: Directory to write logs to
+        step: Current training step
+        max_to_log: Maximum number of truncated samples to log (default 10)
+    """
+    import os
+    import json
+
+    truncated = repeated_batch.get("truncated")
+    if truncated is None:
+        return
+
+    # Find truncated samples
+    truncated_indices = torch.where(truncated)[0].tolist()
+    if not truncated_indices:
+        return
+
+    # Get relevant data
+    message_logs = repeated_batch.get("message_log", [])
+    turn_counts = repeated_batch.get("turn_counts")
+    rewards = repeated_batch.get("total_reward")
+    extra_env_infos = repeated_batch.get("extra_env_info", [])
+
+    # Create log file
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"truncated_rollouts_step_{step}.jsonl")
+
+    print(f"⚠️  {len(truncated_indices)} truncated rollouts - logging to {log_file}", flush=True)
+
+    with open(log_file, "w") as f:
+        for i, idx in enumerate(truncated_indices[:max_to_log]):
+            # Build record
+            record = {
+                "sample_idx": idx,
+                "turn_count": turn_counts[idx].item() if turn_counts is not None else None,
+                "reward": rewards[idx].item() if rewards is not None else None,
+            }
+
+            # Add max_turns from env_info
+            if extra_env_infos and len(extra_env_infos) > idx:
+                env_info = extra_env_infos[idx]
+                if env_info and isinstance(env_info, dict):
+                    record["max_turns"] = env_info.get("max_turns")
+
+            # Add conversation (convert token_ids to strings for readability)
+            if message_logs and len(message_logs) > idx:
+                messages = message_logs[idx]
+                # Strip token_ids from messages for readability
+                record["messages"] = [
+                    {"role": m.get("role", "unknown"), "content": m.get("content", "")}
+                    for m in messages
+                ]
+                # Count total tokens
+                total_tokens = sum(
+                    len(m.get("token_ids", [])) if hasattr(m.get("token_ids", []), "__len__") else 0
+                    for m in messages
+                )
+                record["total_tokens"] = total_tokens
+
+            f.write(json.dumps(record) + "\n")
+
+    if len(truncated_indices) > max_to_log:
+        print(f"   (only logged first {max_to_log} of {len(truncated_indices)} truncated samples)", flush=True)
+
+
+def log_rollout_messages(
+    repeated_batch: BatchedDataDict,
+    log_dir: str,
+    step: int,
+    max_to_log: int = 5,
+    num_generations_per_prompt: int = 1,
+) -> None:
+    """Log full rollout messages to a file for debugging.
+
+    Writes the full conversation for all samples from a randomly selected prompt group.
+    This shows the variation in generations for a single prompt.
+    Separates thinking from final answer and highlights tool calls.
+
+    Args:
+        repeated_batch: Batch containing rollout results
+        log_dir: Directory to write logs to
+        step: Current training step
+        max_to_log: Maximum number of samples to log (default 5, unused when logging by group)
+        num_generations_per_prompt: Number of generations per prompt (for grouping)
+    """
+    import os
+    import json
+    import re
+    import random
+
+    def extract_thinking_and_answer(content: str) -> tuple[str, str]:
+        """Extract thinking and final answer from assistant response."""
+        # Look for </think> followed by the answer
+        think_match = re.search(r'<think>(.*?)</think>\s*\n*(.*)$', content, re.DOTALL)
+        if think_match:
+            thinking = think_match.group(1).strip()
+            answer = think_match.group(2).strip()
+            return thinking, answer
+        # No </think> found - might be incomplete or just answer
+        if '<think>' in content:
+            # Has opening but no closing - still thinking
+            thinking = content.split('<think>', 1)[1].strip()
+            return thinking, ""
+        return "", content.strip()
+
+    def extract_tool_calls(content: str) -> list[dict]:
+        """Extract tool calls from content."""
+        tool_calls = []
+        # Look for <tool_call>...</tool_call>
+        pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+        for match in re.finditer(pattern, content, re.DOTALL):
+            try:
+                tool_data = json.loads(match.group(1))
+                tool_calls.append(tool_data)
+            except json.JSONDecodeError:
+                tool_calls.append({"raw": match.group(1)})
+        return tool_calls
+
+    def extract_tool_response(content: str) -> str:
+        """Extract tool response from user message."""
+        # Look for <tool_response>...</tool_response>
+        match = re.search(r'<tool_response>\s*(.*?)\s*</tool_response>', content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        # Legacy format: "Tool result for..."
+        if content.startswith("Tool result for"):
+            return content
+        return ""
+
+    # Get relevant data
+    message_logs = repeated_batch.get("message_log", [])
+    if not message_logs:
+        print(f"⚠️  No message_log found in batch - cannot log rollout messages", flush=True)
+        return
+
+    turn_counts = repeated_batch.get("turn_counts")
+    rewards = repeated_batch.get("total_reward")
+    truncated = repeated_batch.get("truncated")
+    terminated = repeated_batch.get("terminated")
+    extra_env_infos = repeated_batch.get("extra_env_info", [])
+
+    # Create log file - select a random prompt group
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Calculate number of prompt groups and select one randomly
+    num_samples = len(message_logs)
+    num_prompt_groups = max(1, num_samples // num_generations_per_prompt)
+    selected_group = random.randint(0, num_prompt_groups - 1)
+
+    # Get indices for the selected group
+    start_idx = selected_group * num_generations_per_prompt
+    end_idx = min(start_idx + num_generations_per_prompt, num_samples)
+    group_indices = list(range(start_idx, end_idx))
+
+    log_file = os.path.join(log_dir, f"rollout_messages_group_step_{step}.txt")
+
+    print(f"\n📝 Logging prompt group {selected_group} ({len(group_indices)} samples) to {log_file}", flush=True)
+
+    with open(log_file, "w") as f:
+        f.write(f"PROMPT GROUP {selected_group} (samples {start_idx}-{end_idx-1})\n")
+        f.write(f"Total generations for this prompt: {len(group_indices)}\n")
+        f.write(f"{'='*80}\n\n")
+
+        for idx in group_indices:
+            messages = message_logs[idx]
+
+            # Write header
+            f.write(f"\n{'='*80}\n")
+            f.write(f"SAMPLE {idx}\n")
+            f.write(f"{'='*80}\n")
+
+            # Write metadata
+            if turn_counts is not None and idx < len(turn_counts):
+                f.write(f"Turn count: {turn_counts[idx].item()}\n")
+            if rewards is not None and idx < len(rewards):
+                reward = rewards[idx].item()
+                raw_score = reward * 5.0 + 5.0  # Convert back to 0-10
+                f.write(f"Reward: {reward:.3f} (Score: {raw_score:.1f}/10)\n")
+            if truncated is not None and idx < len(truncated):
+                f.write(f"Truncated: {truncated[idx].item()}\n")
+            if terminated is not None and idx < len(terminated):
+                f.write(f"Terminated: {terminated[idx].item()}\n")
+            if extra_env_infos and idx < len(extra_env_infos):
+                env_info = extra_env_infos[idx]
+                if env_info and isinstance(env_info, dict):
+                    f.write(f"Max turns: {env_info.get('max_turns', 'N/A')}\n")
+
+            # Count tokens per message
+            total_tokens = sum(
+                len(m.get("token_ids", [])) if hasattr(m.get("token_ids", []), "__len__") else 0
+                for m in messages
+            )
+            f.write(f"Total tokens: {total_tokens}\n")
+
+            f.write(f"\n{'-'*40}\n")
+            f.write("CONVERSATION:\n")
+            f.write(f"{'-'*40}\n\n")
+
+            # Track tool calls for summary
+            all_tool_calls = []
+
+            # Write each message
+            for i, msg in enumerate(messages):
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                token_count = len(msg.get("token_ids", [])) if hasattr(msg.get("token_ids", []), "__len__") else 0
+
+                # Keep special tokens for full visibility
+                content_clean = content
+
+                # Skip system prompts (too long)
+                if role == "system":
+                    f.write(f"[{i}] SYSTEM ({token_count} tokens): (system prompt - {len(content)} chars)\n\n")
+                    continue
+
+                if role == "assistant":
+                    # Extract and display thinking vs answer
+                    thinking, answer = extract_thinking_and_answer(content_clean)
+                    tool_calls = extract_tool_calls(content_clean)
+                    all_tool_calls.extend(tool_calls)
+
+                    f.write(f"[{i}] ASSISTANT ({token_count} tokens):\n")
+
+                    if thinking:
+                        # Truncate long thinking
+                        thinking_display = thinking[:500] + "..." if len(thinking) > 500 else thinking
+                        f.write(f"  📝 THINKING:\n")
+                        for line in thinking_display.split('\n'):
+                            f.write(f"     {line}\n")
+
+                    if tool_calls:
+                        f.write(f"  🔧 TOOL CALLS:\n")
+                        for tc in tool_calls:
+                            f.write(f"     - {tc.get('name', 'unknown')}({tc.get('arguments', {})})\n")
+
+                    if answer:
+                        # Remove tool call tags from answer display
+                        answer_clean = re.sub(r'<tool_call>.*?</tool_call>\s*', '', answer, flags=re.DOTALL).strip()
+                        if answer_clean:
+                            f.write(f"  💬 FINAL ANSWER:\n")
+                            for line in answer_clean.split('\n'):
+                                f.write(f"     {line}\n")
+
+                    if not thinking and not tool_calls and not answer:
+                        f.write(f"  (empty or unrecognized format)\n")
+                        f.write(f"  Raw: {content_clean[:200]}...\n" if len(content_clean) > 200 else f"  Raw: {content_clean}\n")
+
+                    f.write("\n")
+
+                elif role == "user":
+                    # Check if this is a tool response
+                    tool_response = extract_tool_response(content_clean)
+                    if tool_response:
+                        f.write(f"[{i}] TOOL RESPONSE ({token_count} tokens):\n")
+                        # Pretty print JSON if possible
+                        try:
+                            parsed = json.loads(tool_response)
+                            f.write(f"  {json.dumps(parsed, indent=2)}\n\n")
+                        except json.JSONDecodeError:
+                            f.write(f"  {tool_response[:300]}...\n\n" if len(tool_response) > 300 else f"  {tool_response}\n\n")
+                    else:
+                        f.write(f"[{i}] USER ({token_count} tokens):\n")
+                        f.write(f"  {content_clean[:500]}...\n\n" if len(content_clean) > 500 else f"  {content_clean}\n\n")
+                else:
+                    f.write(f"[{i}] {role.upper()} ({token_count} tokens):\n")
+                    f.write(f"  {content_clean[:300]}...\n\n" if len(content_clean) > 300 else f"  {content_clean}\n\n")
+
+            # Write tool call summary
+            if all_tool_calls:
+                f.write(f"\n{'-'*40}\n")
+                f.write(f"TOOL CALL SUMMARY: {len(all_tool_calls)} call(s)\n")
+                for tc in all_tool_calls:
+                    f.write(f"  - {tc.get('name', 'unknown')}\n")
+                f.write(f"{'-'*40}\n")
+
+    if group_indices and rewards is not None:
+        group_rewards = [rewards[i].item() for i in group_indices if i < len(rewards)]
+        print(f"   Group {selected_group} rewards: min={min(group_rewards):.3f}, max={max(group_rewards):.3f}, "
+              f"mean={sum(group_rewards)/len(group_rewards):.3f}", flush=True)
 
 
 class GRPOLoggerConfig(LoggerConfig):
@@ -312,15 +718,26 @@ def setup(
         rm_gpus_per_node = 0
 
     # Account for LLM judge nodes (judge + optional user LLM for multi-turn)
+    # Skip if using HTTP server mode (openai_api_base) - no local nodes needed
     if llm_judge_enabled:
-        llm_judge_resource = env_configs["llm_judge"]["generation"]["colocated"]["resources"]
-        llm_judge_nodes = llm_judge_resource["num_nodes"]
+        llm_judge_config = env_configs["llm_judge"]
+        uses_http_server = "openai_api_base" in llm_judge_config
 
-        # If multi-turn enabled with user LLM, reserve additional node
-        if env_configs["llm_judge"].get("user_llm") is not None:
-            user_llm_resource = env_configs["llm_judge"]["user_llm"]["generation"]["colocated"]["resources"]
-            llm_judge_nodes += user_llm_resource["num_nodes"]
-            print(f"  ℹ Multi-turn mode: reserving {llm_judge_resource['num_nodes']} node(s) for judge + {user_llm_resource['num_nodes']} node(s) for user LLM")
+        if uses_http_server:
+            # HTTP server mode - judge and user LLM run externally, no local nodes needed
+            llm_judge_nodes = 0
+            print("  ℹ LLM Judge using HTTP server mode (no local nodes reserved)")
+        else:
+            # Local vLLM mode - reserve nodes for judge and user LLM
+            llm_judge_resource = llm_judge_config["generation"]["colocated"]["resources"]
+            llm_judge_nodes = llm_judge_resource["num_nodes"]
+
+            # If multi-turn enabled with user LLM, reserve additional node
+            user_llm_config = llm_judge_config.get("user_llm")
+            if user_llm_config is not None and "openai_api_base" not in user_llm_config:
+                user_llm_resource = user_llm_config["generation"]["colocated"]["resources"]
+                llm_judge_nodes += user_llm_resource["num_nodes"]
+                print(f"  ℹ Multi-turn mode: reserving {llm_judge_resource['num_nodes']} node(s) for judge + {user_llm_resource['num_nodes']} node(s) for user LLM")
     else:
         llm_judge_nodes = 0
 
@@ -1231,6 +1648,30 @@ def grpo_train(
                     else:
                         vllm_logger_metrics = {}
 
+                # Print per-prompt rollout summary table
+                print_rollout_summary_table(
+                    repeated_batch,
+                    num_prompts=master_config["grpo"]["num_prompts_per_step"],
+                    num_generations_per_prompt=master_config["grpo"]["num_generations_per_prompt"],
+                )
+
+                # Log truncated rollouts to file for debugging
+                log_truncated_rollouts(
+                    repeated_batch,
+                    log_dir=master_config["logger"]["log_dir"],
+                    step=current_step,
+                )
+
+                # Log full rollout messages if enabled (for debugging)
+                if master_config["logger"].get("log_rollout_messages", False):
+                    log_rollout_messages(
+                        repeated_batch,
+                        log_dir=master_config["logger"]["log_dir"],
+                        step=current_step,
+                        max_to_log=5,
+                        num_generations_per_prompt=master_config["grpo"]["num_generations_per_prompt"],
+                    )
+
                 repeated_batch = scale_rewards(
                     repeated_batch, master_config["grpo"]["reward_scaling"]
                 )
@@ -1246,6 +1687,16 @@ def grpo_train(
                     # Extract rewards from final_batch
                     rewards = repeated_batch["total_reward"]
 
+                    # Extract max_turns from extra_env_info for each sample (for debug logging)
+                    max_turns_per_sample = None
+                    if "extra_env_info" in repeated_batch.keys():
+                        max_turns_per_sample = []
+                        for env_info in repeated_batch["extra_env_info"]:
+                            if env_info and isinstance(env_info, dict) and "max_turns" in env_info:
+                                max_turns_per_sample.append(env_info["max_turns"])
+                            else:
+                                max_turns_per_sample.append(None)
+
                     print("▶ Computing advantages...", flush=True)
                     baseline, std = calculate_baseline_and_std_per_prompt(
                         input_ids,
@@ -1254,6 +1705,7 @@ def grpo_train(
                         leave_one_out_baseline=master_config["grpo"][
                             "use_leave_one_out_baseline"
                         ],
+                        max_turns_per_sample=max_turns_per_sample,
                     )
                     # Apply dynamic sampling to filter prompts with non-zero std (DAPO algorithm)
                     repeated_batch, is_batch_complete, batch_cache, ds_metrics = (
@@ -1286,10 +1738,13 @@ def grpo_train(
                     advantages = (rewards - baseline).unsqueeze(-1)
 
                     if master_config["grpo"]["normalize_rewards"]:
-                        advantages = normalize_advantages_with_epsilon(
-                            advantages=advantages,
-                            std=std,
-                        )
+                        # Check if we should also divide by std (default True for backwards compat)
+                        normalize_by_std = master_config["grpo"].get("normalize_by_std", True)
+                        if normalize_by_std:
+                            advantages = normalize_advantages_with_epsilon(
+                                advantages=advantages,
+                                std=std,
+                            )
 
                 with timer.time("data_processing"):
                     use_overlong_filtering = master_config["grpo"]["overlong_filtering"]
@@ -1568,6 +2023,7 @@ def grpo_train(
             # Logging
             # Log training data
             log_data = {"content": flat_messages["content"]}
+            log_data["token_ids"] = flat_messages["token_ids"].tolist()
             log_data["rewards"] = rewards.tolist()
             if master_config["grpo"]["use_dynamic_sampling"]:
                 log_data["filtered_rewards"] = rewards.tolist()
@@ -1788,8 +2244,10 @@ def validate(
             # Unscaled binary reward values range = {0.0, 1.0}
             correct_response_reward = torch.tensor(1.0, dtype=torch.float32)
             accuracy = (rewards_t == correct_response_reward).float().mean().item()
+            mean_reward = rewards_t.mean().item()
         else:
             accuracy = 0.0
+            mean_reward = 0.0
 
         avg_length = (
             sum(total_lengths) / len(total_lengths) if len(total_lengths) > 0 else 0.0
@@ -1797,6 +2255,7 @@ def validate(
 
         val_metrics = {
             "accuracy": accuracy,
+            "mean_reward": mean_reward,
             "avg_length": avg_length,
             **additional_metrics_to_report,
         }
@@ -1823,6 +2282,7 @@ def validate(
     # Print summary of validation results
     print("\n📊 Validation Results:")
     print(f"    • Accuracy: {accuracy:.4f}")
+    print(f"    • Mean reward: {mean_reward:.4f}")
     print(f"    • Average response length: {avg_length:.1f} tokens")
     print(f"    • Samples processed: {len(total_rewards)}", flush=True)
 
@@ -1971,7 +2431,8 @@ def async_grpo_train(
     )
 
     replay_buffer = ReplayBuffer.options(runtime_env=_replay_runtime_env).remote(
-        max_size=optimal_buffer_size
+        max_size=optimal_buffer_size,
+        num_prompts_per_step=num_prompts_per_step,
     )
 
     _tc_py_exec = get_actor_python_env(
@@ -2219,6 +2680,16 @@ def async_grpo_train(
 
                     rewards = repeated_batch["total_reward"]
 
+                    # Extract max_turns from extra_env_info for each sample (for debug logging)
+                    max_turns_per_sample = None
+                    if "extra_env_info" in repeated_batch.keys():
+                        max_turns_per_sample = []
+                        for env_info in repeated_batch["extra_env_info"]:
+                            if env_info and isinstance(env_info, dict) and "max_turns" in env_info:
+                                max_turns_per_sample.append(env_info["max_turns"])
+                            else:
+                                max_turns_per_sample.append(None)
+
                     print("▶ Computing advantages...")
 
                     baseline, std = calculate_baseline_and_std_per_prompt(
@@ -2228,6 +2699,7 @@ def async_grpo_train(
                         leave_one_out_baseline=master_config["grpo"][
                             "use_leave_one_out_baseline"
                         ],
+                        max_turns_per_sample=max_turns_per_sample,
                     )
                     advantages = (rewards - baseline).unsqueeze(-1)
 
@@ -2242,14 +2714,16 @@ def async_grpo_train(
                     )
 
                     if master_config["grpo"]["normalize_rewards"]:
-                        advantages = normalize_advantages_with_epsilon(
-                            advantages=advantages,
-                            std=std,
-                        )
-
-                        print(
-                            f"  📊 Normalized advantages stats: min={advantages.min():.4f}, max={advantages.max():.4f}, mean={advantages.mean():.4f}, std={advantages.std():.4f}"
-                        )
+                        # Check if we should also divide by std (default True for backwards compat)
+                        normalize_by_std = master_config["grpo"].get("normalize_by_std", True)
+                        if normalize_by_std:
+                            advantages = normalize_advantages_with_epsilon(
+                                advantages=advantages,
+                                std=std,
+                            )
+                            print(
+                                f"  📊 Normalized advantages stats: min={advantages.min():.4f}, max={advantages.max():.4f}, mean={advantages.mean():.4f}, std={advantages.std():.4f}"
+                            )
 
                 # Prepare training data (same as sync version)
                 with timer.time("data_processing"):
@@ -2533,6 +3007,7 @@ def async_grpo_train(
                     policy.offload_after_refit()
 
             log_data = {"content": flat_messages["content"]}
+            log_data["token_ids"] = flat_messages["token_ids"].tolist()
             log_data["rewards"] = rewards.tolist()
             log_data["generation_logprobs"] = train_data["generation_logprobs"].tolist()
             log_data["prev_logprobs"] = train_data["prev_logprobs"].tolist()

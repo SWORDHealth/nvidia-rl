@@ -40,15 +40,19 @@ class ReplayBuffer:
     grpo.num_generations_per_prompt (required to compute per-prompt advantages).
     """
 
-    def __init__(self, max_size: int):
+    def __init__(self, max_size: int, num_prompts_per_step: int = 64):
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
         self.max_size = max_size
+        self.num_prompts_per_step = num_prompts_per_step
         self.trajectories = []  # List[dict[str, Any]]
         # If trajectory_version is 1 and target_weight_version is 4 it means that weight version 1 was used for generating a trajectory and this trajectory will be used for training when weight version is 4.
         self.trajectory_versions = []  # it is the weight-version used for generation of a trajectory
         self.target_weight_versions = []  # it is the weight-version of the trainer where this trajectory will be used.
 
+        # Track count of trajectories generated for each target weight version
+        # A target is considered "complete" only when it has num_prompts_per_step trajectories
+        self._target_generation_counts: dict[int, int] = {}
         self.last_target_weight_already_generated = -1
         self._lock = _threading.Lock()
 
@@ -73,11 +77,25 @@ class ReplayBuffer:
             self.trajectories.append(trajectory)
             self.trajectory_versions.append(weight_version)
             self.target_weight_versions.append(target_weight_version)
-            self.last_target_weight_already_generated = max(
-                self.last_target_weight_already_generated, target_weight_version
+
+            # Track generation count per target weight
+            self._target_generation_counts[target_weight_version] = (
+                self._target_generation_counts.get(target_weight_version, 0) + 1
             )
+
+            # Only mark a target as "fully generated" when we have all num_prompts_per_step trajectories
+            if (
+                self._target_generation_counts[target_weight_version]
+                >= self.num_prompts_per_step
+            ):
+                self.last_target_weight_already_generated = max(
+                    self.last_target_weight_already_generated, target_weight_version
+                )
+
             print(
-                f"ReplayBuffer state: {len(self.trajectories)} groups, versions={self.trajectory_versions}, targets={self.target_weight_versions}, last_target_weight_already_generated={self.last_target_weight_already_generated}"
+                f"ReplayBuffer state: {len(self.trajectories)} groups, versions={self.trajectory_versions}, "
+                f"targets={self.target_weight_versions}, target_counts={dict(self._target_generation_counts)}, "
+                f"last_target_weight_fully_generated={self.last_target_weight_already_generated}"
             )
             return "success"
 
@@ -87,8 +105,21 @@ class ReplayBuffer:
             "total_trajectories": len(self.trajectories),
             "trajectory_versions": self.trajectory_versions,
             "target_weight_versions": self.target_weight_versions,
+            "target_generation_counts": dict(self._target_generation_counts),
+            "num_prompts_per_step": self.num_prompts_per_step,
             "max_size": self.max_size,
         }
+
+    def get_target_generation_count(self, target_weight: int) -> int:
+        """Get the number of trajectories generated for a specific target weight."""
+        with self._lock:
+            return self._target_generation_counts.get(target_weight, 0)
+
+    def is_target_complete(self, target_weight: int) -> bool:
+        """Check if a target weight has all required trajectories."""
+        with self._lock:
+            count = self._target_generation_counts.get(target_weight, 0)
+            return count >= self.num_prompts_per_step
 
     def get_last_target_weight_already_generated(self) -> int:
         with self._lock:
@@ -135,14 +166,31 @@ class ReplayBuffer:
             min_valid_version = max(0, current_weight_version - max_age_steps)
             print(f"   {min_valid_version=}")
 
-            # Check for unexpected old trajectories
-            old_trajectories = [
-                v for v in self.trajectory_versions if v < min_valid_version
+            # Evict expired trajectories (too old to be used)
+            # This can happen when generation is slower than training, causing
+            # trajectories targeting old steps to accumulate
+            expired_indices = [
+                i for i, v in enumerate(self.trajectory_versions)
+                if v < min_valid_version
             ]
-            if old_trajectories:
-                raise ValueError(
-                    f"Found {len(old_trajectories)} trajectories older than min_valid_version {min_valid_version}"
+            if expired_indices:
+                print(
+                    f"🗑️ Evicting {len(expired_indices)} expired trajectories "
+                    f"(trajectory_version < {min_valid_version})"
                 )
+                # Remove expired items in reverse order to maintain correct indices
+                for idx in sorted(expired_indices, reverse=True):
+                    expired_target = self.target_weight_versions[idx]
+                    self.trajectory_versions.pop(idx)
+                    self.target_weight_versions.pop(idx)
+                    self.trajectories.pop(idx)
+                    # Update target generation counts
+                    if expired_target in self._target_generation_counts:
+                        self._target_generation_counts[expired_target] -= 1
+                        if self._target_generation_counts[expired_target] <= 0:
+                            del self._target_generation_counts[expired_target]
+                total_trajectories = len(self.trajectories)
+                print(f"   Buffer size after eviction: {total_trajectories}")
 
             # Filter for valid trajectories without modifying the buffer
             valid_indices = [
@@ -233,6 +281,8 @@ class ReplayBuffer:
             self.trajectories.clear()
             self.trajectory_versions.clear()
             self.target_weight_versions.clear()
+            self._target_generation_counts.clear()
+            self.last_target_weight_already_generated = -1
 
 
 @ray.remote  # pragma: no cover
@@ -323,21 +373,30 @@ class AsyncTrajectoryCollector:
     def _get_next_target_for_generation(
         self, generation_weight_version: int
     ) -> Optional[int]:
-        """Get the next target weight that needs generation (if any)."""
+        """Get the next target weight that needs generation (if any).
+
+        A target weight needs generation if:
+        1. It doesn't have all num_prompts_per_step trajectories yet, AND
+        2. It's not currently being generated by another worker
+        """
         target_weights = self._calculate_target_weights(generation_weight_version)
-        last_target_weight_already_generated = ray.get(
-            self.replay_buffer.get_last_target_weight_already_generated.remote()
-        )
 
         with self._generation_check_lock:
             for target_weight in target_weights:
-                if (
-                    target_weight > last_target_weight_already_generated
-                    and target_weight not in self._generating_targets
-                ):
-                    self._generating_targets.add(target_weight)
-                    print(f"🎯 Reserved target weight {target_weight} for generation")
-                    return target_weight
+                # Check if this target already has all required trajectories
+                is_complete = ray.get(
+                    self.replay_buffer.is_target_complete.remote(target_weight)
+                )
+                if is_complete:
+                    continue
+
+                # Check if this target is already being generated
+                if target_weight in self._generating_targets:
+                    continue
+
+                self._generating_targets.add(target_weight)
+                print(f"🎯 Reserved target weight {target_weight} for generation")
+                return target_weight
 
         return None
 
@@ -356,21 +415,25 @@ class AsyncTrajectoryCollector:
         """Check if collection should be paused due to generation limits."""
         try:
             target_weights = self._calculate_target_weights(self.current_weight_version)
-            last_target_weight_already_generated = ray.get(
-                self.replay_buffer.get_last_target_weight_already_generated.remote()
-            )
 
             # Check if any target weight in our range needs generation
             with self._generation_check_lock:
                 for target_weight in target_weights:
-                    if (
-                        target_weight > last_target_weight_already_generated
-                        and target_weight not in self._generating_targets
-                    ):
-                        return False  # Found a target that needs generation
+                    # Check if this target already has all required trajectories
+                    is_complete = ray.get(
+                        self.replay_buffer.is_target_complete.remote(target_weight)
+                    )
+                    if is_complete:
+                        continue
+
+                    # Check if this target is already being generated
+                    if target_weight in self._generating_targets:
+                        continue
+
+                    return False  # Found a target that needs generation
 
             print(
-                f"⏸️ All target weights {target_weights} already generated or in progress, pausing"
+                f"⏸️ All target weights {target_weights} already complete or in progress, pausing"
             )
             return True
         except Exception:

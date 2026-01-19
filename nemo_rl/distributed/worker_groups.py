@@ -614,6 +614,8 @@ class RayWorkerGroup:
                     "dp_shard_idx": info["group_idx"],
                 }
             )
+        
+        print("All workers initialized.", flush=True)
 
     @property
     def workers(self) -> list[ray.actor.ActorHandle]:

@@ -119,9 +119,10 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
         data = ThriveVLMDataset(
             data_config["dataset_name"],
         )
-
     else:
-        raise ValueError(f"Unknown dataset class: {data_cls}")
+        # load dataset
+        data = load_response_dataset(data_config, seed)
+
     print(
         f"  ✓ Training and validation datasets loaded with {len(data.formatted_ds['train'])} and {len(data.formatted_ds['validation'])} samples, respectively."
     )
@@ -129,9 +130,6 @@ def setup_data(tokenizer: AutoTokenizer, data_config: DataConfig, seed: int):
     train_dataset = data.formatted_ds["train"]
     val_dataset = data.formatted_ds["validation"]
     sft_task_spec = data.task_spec
-    print(
-        f"  ✓ Training and validation datasets loaded with {len(train_dataset)} and {len(val_dataset)} samples, respectively."
-    )
 
     # add preprocessor if needed
     datum_preprocessor = None

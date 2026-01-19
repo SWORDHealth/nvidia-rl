@@ -82,6 +82,7 @@ def calculate_baseline_and_std_per_prompt(
     rewards: torch.Tensor,
     valid_mask: torch.Tensor,
     leave_one_out_baseline: bool = True,
+    max_turns_per_sample: Optional[list[int]] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Function to compute a baseline for each (prompt, response) pair in the batch.
 
@@ -93,6 +94,7 @@ def calculate_baseline_and_std_per_prompt(
     valid_mask: tensor (b,)       Vector of 0/1, where 0 is to ignore and 1 is to keep
     leave_one_out_baseline: bool  Compute an unbiased baseline by leaving out the sample that
                                   the baseline is for (from RLOO https://arxiv.org/abs/2402.14740)
+    max_turns_per_sample: Optional list of max_turns for each sample (for debug logging)
 
     Returns:
     tensor (b,), tensor (b,) of baselines and std on the same device as 'rewards'
@@ -107,6 +109,20 @@ def calculate_baseline_and_std_per_prompt(
         reward_device = torch.device("cpu")
     else:
         reward_device = torch.device(f"cuda:{device_ordinal}")
+
+    # DEBUG: Print per-prompt-group rewards (with max_turns if available)
+    print(f"  📊 Per-prompt-group rewards ({len(unique_prompts)} unique prompts):")
+    for i in range(min(len(unique_prompts), 8)):  # Show first 8 groups max
+        is_matching = (prompts == unique_prompts[i]).all(1)
+        group_rewards = rewards[is_matching].tolist()
+        group_std = rewards[is_matching].std().item()
+        # Get max_turns for this group (all samples in a group should have same max_turns)
+        if max_turns_per_sample is not None:
+            group_indices = torch.where(is_matching)[0].tolist()
+            group_max_turns = max_turns_per_sample[group_indices[0]] if group_indices else "?"
+            print(f"     Prompt {i} (max_turns={group_max_turns}): rewards={[f'{r:.2f}' for r in group_rewards]}, std={group_std:.4f}")
+        else:
+            print(f"     Prompt {i}: rewards={[f'{r:.2f}' for r in group_rewards]}, std={group_std:.4f}")
 
     for i in range(len(unique_prompts)):
         is_matching_prompt = (prompts == unique_prompts[i]).all(1)

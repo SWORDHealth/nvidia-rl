@@ -150,8 +150,14 @@ Respond with:
 
         # Check if multi-turn mode is enabled
         self.multi_turn_enabled = self.config.get("user_llm") is not None
+
+        # Judge timing configuration: if True, only call judge on final turn
+        # This provides sparse reward (only at end) vs dense reward (every turn)
+        self.judge_at_end_only = self.config["llm_judge"].get("judge_at_end_only", False)
+
         if self.multi_turn_enabled:
             print("🔄 Multi-turn mode ENABLED with user LLM")
+            print(f"⚖️  Judge timing: {'END ONLY (sparse reward)' if self.judge_at_end_only else 'EVERY TURN (dense reward)'}")
             self.user_prompt_template = self.config["user_llm"].get(
                 "prompt_template",
                 """"""
@@ -648,29 +654,40 @@ Respond with:
         return generated_messages
 
     def preprocess_data(
-        self, message_logs: List[LLMMessageLogType]
+        self, message_logs: List[LLMMessageLogType], env_infos: Optional[List[Dict[str, Any]]] = None
     ) -> BatchedDataDict[GenerationDatumSpec]:
         """Preprocess the message logs for the LLM judge.
 
         This method formats conversation logs into judge prompts and tokenizes them
         for LLM processing. It handles:
-        - Formatting conversations with the judge prompt template
+        - Formatting conversations with the judge prompt template (or per-prompt rubric)
         - Tokenization of the full judge prompts
         - Batching and padding for efficient processing
 
         Args:
             message_logs: List of conversation message logs, where each log contains
                          a list of messages with 'role' and 'content' fields.
+            env_infos: Optional list of environment info dictionaries. If a dict contains
+                      a 'rubric' key, that rubric will be used instead of the default
+                      judge_prompt_template for that specific prompt.
 
         Returns:
             BatchedDataDict containing tokenized judge prompts ready for
             LLM inference.
         """
-        # Format each conversation with the judge prompt template
+        # Format each conversation with the judge prompt template (or per-prompt rubric)
         judge_prompts = []
-        for message_log in message_logs:
+        for i, message_log in enumerate(message_logs):
             conversation_history, assistant_response = self.format_conversation_for_judge(message_log)
-            judge_prompt = self.judge_prompt_template.format(
+
+            # Check for per-prompt rubric in env_info
+            prompt_template = self.judge_prompt_template
+            if env_infos is not None and i < len(env_infos) and env_infos[i] is not None:
+                custom_rubric = env_infos[i].get("rubric")
+                if custom_rubric:
+                    prompt_template = custom_rubric
+
+            judge_prompt = prompt_template.format(
                 conversation_history=conversation_history,
                 assistant_response=assistant_response
             )
@@ -805,9 +822,6 @@ Respond with:
             - terminateds: Tensor indicating episode termination
             - answers: List of assistant responses from the conversations
         """
-        # print("\n🤖 LLM JUDGE EVALUATION STARTED")
-        # print("=" * 60)
-
         # Initialize or retrieve turn counts from metadata
         turn_counts = []
         for i, env_info in enumerate(env_infos):
@@ -816,60 +830,112 @@ Respond with:
             else:
                 turn_counts.append(env_info.get("turn_count", 1))
 
-        # Show sample conversations being judged
-        # print(f"📊 Judging {len(message_logs)} conversations")
-        # for i, message_log in enumerate(message_logs[:3]):  # Show first 3 for debugging
-        #     conversation_history, assistant_response = self.format_conversation_for_judge(message_log)
-        #     judge_prompt = self.judge_prompt_template.format(
-        #         conversation_history=conversation_history,
-        #         assistant_response=assistant_response
-        #     )
-        #     print(f"\n--- Judge Input {i+1} (Turn {turn_counts[i]}) ---")
-        #     print(f"PROMPT:\n{judge_prompt[:300]}...")
-        #     print("-" * 40)
+        batch_size = len(message_logs)
 
-        # Preprocess the message logs into judge prompts
-        judge_data = self.preprocess_data(message_logs)
+        # Determine which samples are at their final turn (for judge_at_end_only mode)
+        is_final_turn = [
+            tc >= self.max_conversation_turns if self.multi_turn_enabled else True
+            for tc in turn_counts
+        ]
 
-        # Generate judge responses using VLLM generation worker
-        # print(f"🔧 Generating judge responses with VllmGeneration controller")
-        # print(f"   Input shape: {judge_data['input_ids'].shape}")
-        # print(f"   Input lengths (first 5): {judge_data['input_lengths'][:5].tolist()}")
-        judge_responses = self.llm_judge_generator.generate(judge_data)
+        # Handle judge_at_end_only mode: skip judge for intermediate turns
+        if self.judge_at_end_only and self.multi_turn_enabled:
+            samples_at_final = [i for i, final in enumerate(is_final_turn) if final]
+            samples_not_final = [i for i, final in enumerate(is_final_turn) if not final]
 
-        # Decode output_ids to text using tokenizer
-        output_ids = judge_responses["output_ids"]
-        generation_lengths = judge_responses["generation_lengths"]
-        unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
+            if samples_not_final:
+                print(
+                    f"⏭️  [judge_at_end_only] Skipping judge for {len(samples_not_final)}/{batch_size} "
+                    f"intermediate samples (turns: {[turn_counts[i] for i in samples_not_final[:5]]}...)"
+                )
 
-        # Parse scores from judge responses
-        rewards = []
-        # print(f"\n📝 LLM Judge Responses:")
-        for i in range(len(output_ids)):
-            # Extract only the generated tokens (not the input prompt)
-            gen_len = int(generation_lengths[i])
-            if unpadded_sequence_lengths is not None:
-                unpadded_len = int(unpadded_sequence_lengths[i])
-                input_len = unpadded_len - gen_len
-                generated_tokens = output_ids[i][input_len:unpadded_len]
+            if not samples_at_final:
+                # No samples at final turn - skip judge call entirely, return zero rewards
+                # print(f"⏭️  [judge_at_end_only] No samples at final turn, returning zero rewards")
+                rewards = torch.zeros(batch_size, dtype=torch.float32)
             else:
-                generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+                # Only judge samples at final turn
+                print(
+                    f"⚖️  [judge_at_end_only] Judging {len(samples_at_final)}/{batch_size} "
+                    f"samples at final turn {self.max_conversation_turns}"
+                )
+                final_message_logs = [message_logs[i] for i in samples_at_final]
+                final_env_infos = [env_infos[i] for i in samples_at_final] if env_infos else None
 
-            # Decode to text
-            response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                # Preprocess only final-turn samples (with per-prompt rubrics if available)
+                judge_data = self.preprocess_data(final_message_logs, final_env_infos)
+                judge_responses = self.llm_judge_generator.generate(judge_data)
 
-            score = self.parse_judge_response(response)
-            rewards.append(score)
-            # if i < 10:  # Show first 10 responses
-            #     print(f"  Response {i+1} (Turn {turn_counts[i]}): Score: {score:.2f}")
+                # Parse scores for final-turn samples
+                output_ids = judge_responses["output_ids"]
+                generation_lengths = judge_responses["generation_lengths"]
+                unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
 
-        rewards = torch.tensor(rewards, dtype=torch.float32)
+                final_rewards = []
+                for i in range(len(output_ids)):
+                    gen_len = int(generation_lengths[i])
+                    if unpadded_sequence_lengths is not None:
+                        unpadded_len = int(unpadded_sequence_lengths[i])
+                        input_len = unpadded_len - gen_len
+                        generated_tokens = output_ids[i][input_len:unpadded_len]
+                    else:
+                        generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
 
-        # print(f"\n📊 Reward Statistics:")
-        # print(f"  Mean: {rewards.mean():.3f}")
-        # print(f"  Std:  {rewards.std():.3f}")
-        # print(f"  Min:  {rewards.min():.3f}")
-        # print(f"  Max:  {rewards.max():.3f}")
+                    response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                    score = self.parse_judge_response(response)
+                    final_rewards.append(score)
+
+                # Build full rewards tensor: 0 for intermediate, score for final
+                rewards = torch.zeros(batch_size, dtype=torch.float32)
+                for idx, score in zip(samples_at_final, final_rewards):
+                    rewards[idx] = score
+
+                print(
+                    f"📊 [judge_at_end_only] Final turn rewards - "
+                    f"Mean: {sum(final_rewards)/len(final_rewards):.2f}, "
+                    f"Min: {min(final_rewards):.2f}, Max: {max(final_rewards):.2f}"
+                )
+        else:
+            # Default behavior: judge ALL samples every turn
+            if self.multi_turn_enabled:
+                print(f"⚖️  [dense reward] Judging all {batch_size} samples at turns {turn_counts[:5]}...")
+
+            # Preprocess the message logs into judge prompts (with per-prompt rubrics if available)
+            judge_data = self.preprocess_data(message_logs, env_infos)
+
+            # Generate judge responses using VLLM generation worker
+            judge_responses = self.llm_judge_generator.generate(judge_data)
+
+            # Decode output_ids to text using tokenizer
+            output_ids = judge_responses["output_ids"]
+            generation_lengths = judge_responses["generation_lengths"]
+            unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
+
+            # Parse scores from judge responses
+            rewards = []
+            for i in range(len(output_ids)):
+                # Extract only the generated tokens (not the input prompt)
+                gen_len = int(generation_lengths[i])
+                if unpadded_sequence_lengths is not None:
+                    unpadded_len = int(unpadded_sequence_lengths[i])
+                    input_len = unpadded_len - gen_len
+                    generated_tokens = output_ids[i][input_len:unpadded_len]
+                else:
+                    generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+
+                # Decode to text
+                response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+                score = self.parse_judge_response(response)
+                rewards.append(score)
+
+            rewards = torch.tensor(rewards, dtype=torch.float32)
+
+            print(
+                f"📊 [dense reward] Reward stats - "
+                f"Mean: {rewards.mean():.2f}, Std: {rewards.std():.2f}, "
+                f"Min: {rewards.min():.2f}, Max: {rewards.max():.2f}"
+            )
 
         # Determine if conversations should continue (multi-turn mode)
         observations = []
@@ -940,9 +1006,6 @@ Respond with:
 
         This method is identical to step() but uses async generation methods.
         """
-        # print("\n🤖 LLM JUDGE EVALUATION STARTED")
-        # print("=" * 60)
-
         # Initialize or retrieve turn counts from metadata
         turn_counts = []
         for i, env_info in enumerate(env_infos):
@@ -951,74 +1014,135 @@ Respond with:
             else:
                 turn_counts.append(env_info.get("turn_count", 1))
 
-        # Show sample conversations being judged
-        # print(f"📊 Judging {len(message_logs)} conversations")
-        # for i, message_log in enumerate(message_logs[:3]):  # Show first 3 for debugging
-        #     conversation_history, assistant_response = self.format_conversation_for_judge(message_log)
-        #     judge_prompt = self.judge_prompt_template.format(
-        #         conversation_history=conversation_history,
-        #         assistant_response=assistant_response
-        #     )
-        #     print(f"\n--- Judge Input {i+1} (Turn {turn_counts[i]}) ---")
-        #     print(f"PROMPT:\n{judge_prompt[:300]}...")
-        #     print("-" * 40)
+        batch_size = len(message_logs)
 
-        # Preprocess the message logs into judge prompts
-        judge_data = self.preprocess_data(message_logs)
+        # Determine which samples are at their final turn (for judge_at_end_only mode)
+        is_final_turn = [
+            tc >= self.max_conversation_turns if self.multi_turn_enabled else True
+            for tc in turn_counts
+        ]
 
-        # Generate judge responses using async VLLM generation
-        # print(f"🔧 Generating judge responses with VllmGeneration controller (async)")
-        # print(f"   Input shape: {judge_data['input_ids'].shape}")
-        # print(f"   Input lengths (first 5): {judge_data['input_lengths'][:5].tolist()}")
+        # Handle judge_at_end_only mode: skip judge for intermediate turns
+        if self.judge_at_end_only and self.multi_turn_enabled:
+            samples_at_final = [i for i, final in enumerate(is_final_turn) if final]
+            samples_not_final = [i for i, final in enumerate(is_final_turn) if not final]
 
-        # Use async generation method - collect all results from the async generator
-        collected_indexed_outputs = []
-        async for original_idx, result_batch in self.llm_judge_generator.generate_async(judge_data):
-            collected_indexed_outputs.append((original_idx, result_batch))
+            if samples_not_final:
+                print(
+                    f"⏭️  [judge_at_end_only/async] Skipping judge for {len(samples_not_final)}/{batch_size} "
+                    f"intermediate samples (turns: {[turn_counts[i] for i in samples_not_final[:5]]}...)"
+                )
 
-        # Sort by original_idx to ensure order matches input
-        collected_indexed_outputs.sort(key=lambda x: x[0])
-
-        # Extract in correct order and merge into a single BatchedDataDict
-        ordered_batches = [item for _, item in collected_indexed_outputs]
-        judge_responses = BatchedDataDict.from_batches(
-            ordered_batches,
-            pad_value_dict={"output_ids": self.tokenizer.pad_token_id}
-        )
-
-        # Decode output_ids to text using tokenizer
-        output_ids = judge_responses["output_ids"]
-        generation_lengths = judge_responses["generation_lengths"]
-        unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
-
-        # Parse scores from judge responses
-        rewards = []
-        # print(f"\n📝 LLM Judge Responses:")
-        for i in range(len(output_ids)):
-            # Extract only the generated tokens (not the input prompt)
-            gen_len = int(generation_lengths[i])
-            if unpadded_sequence_lengths is not None:
-                unpadded_len = int(unpadded_sequence_lengths[i])
-                input_len = unpadded_len - gen_len
-                generated_tokens = output_ids[i][input_len:unpadded_len]
+            if not samples_at_final:
+                # No samples at final turn - skip judge call entirely, return zero rewards
+                print(f"⏭️  [judge_at_end_only/async] No samples at final turn, returning zero rewards")
+                rewards = torch.zeros(batch_size, dtype=torch.float32)
             else:
-                generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+                # Only judge samples at final turn
+                print(
+                    f"⚖️  [judge_at_end_only/async] Judging {len(samples_at_final)}/{batch_size} "
+                    f"samples at final turn {self.max_conversation_turns}"
+                )
+                final_message_logs = [message_logs[i] for i in samples_at_final]
+                final_env_infos = [env_infos[i] for i in samples_at_final] if env_infos else None
 
-            # Decode to text
-            response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                # Preprocess only final-turn samples (with per-prompt rubrics if available)
+                judge_data = self.preprocess_data(final_message_logs, final_env_infos)
 
-            score = self.parse_judge_response(response)
-            rewards.append(score)
-            # if i < 10:  # Show first 10 responses
-            #     print(f"  Response {i+1} (Turn {turn_counts[i]}): Score: {score:.2f}")
+                # Use async generation method
+                collected_indexed_outputs = []
+                async for original_idx, result_batch in self.llm_judge_generator.generate_async(judge_data):
+                    collected_indexed_outputs.append((original_idx, result_batch))
 
-        rewards = torch.tensor(rewards, dtype=torch.float32)
+                collected_indexed_outputs.sort(key=lambda x: x[0])
+                ordered_batches = [item for _, item in collected_indexed_outputs]
+                judge_responses = BatchedDataDict.from_batches(
+                    ordered_batches,
+                    pad_value_dict={"output_ids": self.tokenizer.pad_token_id}
+                )
 
-        # print(f"\n📊 Reward Statistics:")
-        # print(f"  Mean: {rewards.mean():.3f}")
-        # print(f"  Std:  {rewards.std():.3f}")
-        # print(f"  Min:  {rewards.min():.3f}")
-        # print(f"  Max:  {rewards.max():.3f}")
+                # Parse scores for final-turn samples
+                output_ids = judge_responses["output_ids"]
+                generation_lengths = judge_responses["generation_lengths"]
+                unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
+
+                final_rewards = []
+                for i in range(len(output_ids)):
+                    gen_len = int(generation_lengths[i])
+                    if unpadded_sequence_lengths is not None:
+                        unpadded_len = int(unpadded_sequence_lengths[i])
+                        input_len = unpadded_len - gen_len
+                        generated_tokens = output_ids[i][input_len:unpadded_len]
+                    else:
+                        generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+
+                    response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                    score = self.parse_judge_response(response)
+                    final_rewards.append(score)
+
+                # Build full rewards tensor: 0 for intermediate, score for final
+                rewards = torch.zeros(batch_size, dtype=torch.float32)
+                for idx, score in zip(samples_at_final, final_rewards):
+                    rewards[idx] = score
+
+                print(
+                    f"📊 [judge_at_end_only/async] Final turn rewards - "
+                    f"Mean: {sum(final_rewards)/len(final_rewards):.2f}, "
+                    f"Min: {min(final_rewards):.2f}, Max: {max(final_rewards):.2f}"
+                )
+        else:
+            # Default behavior: judge ALL samples every turn
+            if self.multi_turn_enabled:
+                print(f"⚖️  [dense reward/async] Judging all {batch_size} samples at turns {turn_counts[:5]}...")
+
+            # Preprocess the message logs into judge prompts (with per-prompt rubrics if available)
+            judge_data = self.preprocess_data(message_logs, env_infos)
+
+            # Use async generation method - collect all results from the async generator
+            collected_indexed_outputs = []
+            async for original_idx, result_batch in self.llm_judge_generator.generate_async(judge_data):
+                collected_indexed_outputs.append((original_idx, result_batch))
+
+            # Sort by original_idx to ensure order matches input
+            collected_indexed_outputs.sort(key=lambda x: x[0])
+
+            # Extract in correct order and merge into a single BatchedDataDict
+            ordered_batches = [item for _, item in collected_indexed_outputs]
+            judge_responses = BatchedDataDict.from_batches(
+                ordered_batches,
+                pad_value_dict={"output_ids": self.tokenizer.pad_token_id}
+            )
+
+            # Decode output_ids to text using tokenizer
+            output_ids = judge_responses["output_ids"]
+            generation_lengths = judge_responses["generation_lengths"]
+            unpadded_sequence_lengths = judge_responses.get("unpadded_sequence_lengths")
+
+            # Parse scores from judge responses
+            rewards = []
+            for i in range(len(output_ids)):
+                # Extract only the generated tokens (not the input prompt)
+                gen_len = int(generation_lengths[i])
+                if unpadded_sequence_lengths is not None:
+                    unpadded_len = int(unpadded_sequence_lengths[i])
+                    input_len = unpadded_len - gen_len
+                    generated_tokens = output_ids[i][input_len:unpadded_len]
+                else:
+                    generated_tokens = output_ids[i][-gen_len:] if gen_len > 0 else []
+
+                # Decode to text
+                response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+                score = self.parse_judge_response(response)
+                rewards.append(score)
+
+            rewards = torch.tensor(rewards, dtype=torch.float32)
+
+            print(
+                f"📊 [dense reward/async] Reward stats - "
+                f"Mean: {rewards.mean():.2f}, Std: {rewards.std():.2f}, "
+                f"Min: {rewards.min():.2f}, Max: {rewards.max():.2f}"
+            )
 
         # Determine if conversations should continue (multi-turn mode)
         observations = []

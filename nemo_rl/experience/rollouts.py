@@ -312,12 +312,10 @@ def calculate_rewards(
         env_info = [batch["extra_env_info"][i] for i in indices]
 
         # Submit task to environment and store future
-        # Use step_async if available (for async_engine=True), otherwise use step
         env_actor = task_to_env[task_name]
-        if hasattr(env_actor, 'step_async'):
-            future = env_actor.step_async.remote(messages, env_info)  # type: ignore # ray actor call
-        else:
-            future = env_actor.step.remote(messages, env_info)  # type: ignore # ray actor call
+        # Always use sync step() - async step_async() is only for internal async engine use
+        # The Ray actor call itself is always async via .remote()
+        future = env_actor.step.remote(messages, env_info)  # type: ignore # ray actor call
         futures.append(future)
         future_to_indices[future] = indices
 
@@ -429,25 +427,35 @@ def run_multi_turn_rollout(
 
         active_samples_per_turn.append(len(active_indices))
 
+        # Clean reasoning traces from message log if turn > 0
+        # BUT: For interleaved tool calling, preserve thinking within the same tool-calling chain
+        # Only clean if the last observation was NOT a tool response (i.e., a real user turn)
         if turn > 0:
             for global_idx in active_indices.tolist():
                 message_log = current_batch["message_log"][global_idx]
-                for i, message in enumerate(message_log):
-                    decoded_full = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
-                    needs_cleaning = "</think>" in decoded_full or "<think>" in decoded_full
 
-                    if needs_cleaning:
-                        # Decode with skip_special_tokens=False to keep chat template markers
-                        decoded = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
-                        if "</think>" in decoded:
-                            decoded = re.split(r'</think>\s*', decoded, maxsplit=1)[-1]
+                # Check if the last message was a tool response
+                last_msg_content = message_log[-1].get("content", "") if message_log else ""
+                is_tool_response_turn = "<tool_response>" in last_msg_content
 
-                        decoded = re.sub(r'<think>\s*$', '', decoded).strip()
+                # Only clean thinking if this is NOT a continuation of tool calling
+                if not is_tool_response_turn:
+                    for i, message in enumerate(message_log):
+                        decoded_full = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                        needs_cleaning = "</think>" in decoded_full or "<think>" in decoded_full
 
-                        # Re-tokenize the cleaned text (which still has chat markers)
-                        message["token_ids"] = tokenizer(decoded, add_special_tokens=False, return_tensors="pt").input_ids[0]
-                        # Content field keeps full chat markers for consistent debug display
-                        message["content"] = decoded
+                        if needs_cleaning:
+                            # Decode with skip_special_tokens=False to keep chat template markers
+                            decoded = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                            if "</think>" in decoded:
+                                decoded = re.split(r'</think>\s*', decoded, maxsplit=1)[-1]
+
+                            decoded = re.sub(r'<think>\s*$', '', decoded).strip()
+
+                            # Re-tokenize the cleaned text (which still has chat markers)
+                            message["token_ids"] = tokenizer(decoded, add_special_tokens=False, return_tensors="pt").input_ids[0]
+                            # Content field keeps full chat markers for consistent debug display
+                            message["content"] = decoded
 
         active_batch = current_batch.select_indices(active_indices)
         active_stop_strings = [current_stop_strings[i] for i in active_indices.tolist()]
@@ -506,10 +514,14 @@ def run_multi_turn_rollout(
 
         total_rewards[active_indices] += env_output.rewards
 
-        # Update message log for ALL active samples with env observation
-        # This must happen BEFORE filtering based on done flags
+        # Update message log for CONTINUING samples with env observation
+        # Skip terminated samples - they don't need another observation
         truncation_mask = torch.zeros_like(env_output.terminateds, dtype=torch.bool)
         for i, global_idx in enumerate(active_indices.tolist()):
+            # Skip if this sample has terminated - no need to add empty observation
+            if env_output.terminateds[i]:
+                continue
+
             env_obs_content = env_output.observations[i]["content"]
 
             formatted_tokens = tokenizer.apply_chat_template(
@@ -590,6 +602,10 @@ def run_multi_turn_rollout(
     # Add total rewards to the final batch
     current_batch["total_reward"] = total_rewards
     current_batch["truncated"] = sample_truncated
+    # Per-sample metrics for rollout summary table
+    current_batch["turn_counts"] = sample_turn_counts
+    current_batch["terminated"] = sample_terminated
+    current_batch["max_turns_reached"] = sample_max_turns_reached
 
     # Calculate aggregate metrics
     rollout_metrics = {
@@ -742,26 +758,41 @@ async def run_sample_multi_turn_rollout(
         turn_count += 1
 
         # Clean reasoning traces from message log if turn > 0
+        # BUT: For interleaved tool calling, preserve thinking within the same tool-calling chain
+        # Only clean if the last observation was NOT a tool response (i.e., a real user turn)
         if turn > 0:
-            for i, message in enumerate(current_message_log):
-                if "token_ids" not in message:
-                    continue
+            # Check if the last message (before this turn's generation) was a tool response
+            # Tool responses contain <tool_response> tags
+            last_msg_content = current_message_log[-1].get("content", "") if current_message_log else ""
+            is_tool_response_turn = "<tool_response>" in last_msg_content
 
-                decoded_full = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
-                needs_cleaning = "</think>" in decoded_full or "<think>" in decoded_full
+            # Only clean thinking if this is NOT a continuation of tool calling
+            # (i.e., if the previous observation was a real user message, not a tool result)
+            if not is_tool_response_turn:
+                for i, message in enumerate(current_message_log):
+                    if "token_ids" not in message:
+                        continue
 
-                if needs_cleaning:
-                    # Decode with skip_special_tokens=False to keep chat template markers
-                    decoded = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
-                    if "</think>" in decoded:
-                        decoded = re.split(r'</think>\s*', decoded, maxsplit=1)[-1]
+                    # Only clean assistant messages, not user messages
+                    # User messages may have <think> at the end as part of the generation prompt
+                    if message.get("role") != "assistant":
+                        continue
 
-                    decoded = re.sub(r'<think>\s*$', '', decoded).strip()
+                    decoded_full = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                    needs_cleaning = "</think>" in decoded_full or "<think>" in decoded_full
 
-                    # Re-tokenize the cleaned text (which still has chat markers)
-                    message["token_ids"] = tokenizer(decoded, add_special_tokens=False, return_tensors="pt").input_ids[0]
-                    # Content field keeps full chat markers for consistent debug display
-                    message["content"] = decoded
+                    if needs_cleaning:
+                        # Decode with skip_special_tokens=False to keep chat template markers
+                        decoded = tokenizer.decode(message["token_ids"], skip_special_tokens=False)
+                        if "</think>" in decoded:
+                            decoded = re.split(r'</think>\s*', decoded, maxsplit=1)[-1]
+
+                        decoded = re.sub(r'<think>\s*$', '', decoded).strip()
+
+                        # Re-tokenize the cleaned text (which still has chat markers)
+                        message["token_ids"] = tokenizer(decoded, add_special_tokens=False, return_tensors="pt").input_ids[0]
+                        # Content field keeps full chat markers for consistent debug display
+                        message["content"] = decoded
 
         # Debug: Print policy input for first sample
         # if sample_idx == 0:
@@ -864,6 +895,7 @@ async def run_sample_multi_turn_rollout(
 
         # Add <think> tag if not present
         decoded_check = tokenizer.decode(formatted_tokens, skip_special_tokens=False)
+        print(f"\n[Sample {sample_idx}, Turn {turn}] decoded_check:\n{repr(decoded_check)}\n")
         if "<think>" not in decoded_check:
             think_tokens = tokenizer.encode("<think>", add_special_tokens=False, return_tensors="pt")[0]
             formatted_tokens = torch.cat([formatted_tokens, think_tokens])
@@ -1032,6 +1064,19 @@ def run_async_multi_turn_rollout(
                 ],
                 "truncated": torch.tensor(
                     [metrics["truncated"] for metrics in all_sample_metrics],
+                    dtype=torch.bool,
+                ),
+                # Per-sample metrics for rollout summary table
+                "turn_counts": torch.tensor(
+                    [metrics["turn_count"] for metrics in all_sample_metrics],
+                    dtype=torch.int32,
+                ),
+                "terminated": torch.tensor(
+                    [metrics["terminated"] for metrics in all_sample_metrics],
+                    dtype=torch.bool,
+                ),
+                "max_turns_reached": torch.tensor(
+                    [metrics["max_turns_reached"] for metrics in all_sample_metrics],
                     dtype=torch.bool,
                 ),
             }

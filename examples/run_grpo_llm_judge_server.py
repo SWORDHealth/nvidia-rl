@@ -214,7 +214,17 @@ def main() -> None:
                 for j, msg in enumerate(value):
                     content = msg.get('content', '')
                     print(f"    Message {j}: role={msg.get('role', 'N/A')}")
-                    print(f"      content: {content}")
+                    print(f"      content: {content[:100]}...")  # Truncate for readability
+            elif key == "extra_env_info":
+                print(f"  {key}:")
+                if value:
+                    for env_key, env_val in value.items():
+                        if env_key == "rubric":
+                            print(f"    {env_key}: {env_val.split(chr(10))[0] if env_val else None}")  # First line only
+                        else:
+                            print(f"    {env_key}: {env_val}")
+                else:
+                    print(f"    None")
             else:
                 print(f"  {key}: {value}")
     print("="*80 + "\n")

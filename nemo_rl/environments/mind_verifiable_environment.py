@@ -451,7 +451,9 @@ def validate_constrained_response(text: str) -> bool:
 IFEVAL_INSTRUCTION_MAP = {
     # Keywords
     "keywords:existence": lambda text, kwargs: verify_keywords(text, kwargs.get("keywords", [])),
-    "keywords:frequency": lambda text, kwargs: verify_keyword_frequency(text, kwargs.get("keyword", ""), kwargs.get("frequency", 0)),
+    "keywords:frequency": lambda text, kwargs: verify_keyword_frequency_relation(
+        text, kwargs.get("keyword", ""), kwargs.get("frequency", 0), kwargs.get("relation", "exactly")
+    ) if kwargs.get("relation") else verify_keyword_frequency(text, kwargs.get("keyword", ""), kwargs.get("frequency", 0)),
     "keywords:word_count_different_numbers": lambda text, kwargs: verify_keyword_frequency_relation(
         text, kwargs.get("keyword", ""), kwargs.get("frequency", 0), kwargs.get("relation", "exactly")
     ),
@@ -558,6 +560,27 @@ IFEVAL_INSTRUCTION_MAP = {
 }
 
 
+def strip_thinking(response: str) -> str:
+    """Remove thinking content from response.
+
+    Args:
+        response: The model response potentially containing thinking blocks
+
+    Returns:
+        Response with thinking content removed (only the answer after </think>)
+    """
+    # If </think> is present, take everything after the last </think>
+    if '</think>' in response:
+        return response.split('</think>')[-1].strip()
+
+    # If <think> is present without closing tag, remove everything from <think> onwards
+    if '<think>' in response:
+        return response.split('<think>')[0].strip()
+
+    # No thinking tags found, return as-is
+    return response.strip()
+
+
 def verify_ifeval_constraints(response: str, ground_truth: list[dict]) -> tuple[float, str]:
     """Verify IFEval constraints and return reward.
 
@@ -569,6 +592,9 @@ def verify_ifeval_constraints(response: str, ground_truth: list[dict]) -> tuple[
         Tuple of (reward, feedback_string)
     """
     import ast
+
+    # Strip thinking blocks before evaluating constraints
+    response = strip_thinking(response)
 
     if not ground_truth:
         return 0.0, "No constraints provided"

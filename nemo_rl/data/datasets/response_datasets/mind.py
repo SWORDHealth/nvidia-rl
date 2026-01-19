@@ -24,7 +24,27 @@ import os
 def format(
     data: dict[str, str | float | int], output_key: str = "messages"
 ) -> dict[str, list[Any] | str]:
-    return {"messages": data[output_key]}
+    result = {"messages": data[output_key]}
+    # Pass through rubric field if present (for per-prompt custom judge rubrics)
+    if "rubric" in data:
+        result["rubric"] = data["rubric"]
+    # Pass through user_system_prompt for per-prompt user LLM persona
+    # Extract from patient_messages if present (first message contains patient persona)
+    if "patient_messages" in data and len(data["patient_messages"]) > 0:
+        patient_msg = data["patient_messages"][0]
+        if isinstance(patient_msg, dict) and "content" in patient_msg:
+            result["user_system_prompt"] = patient_msg["content"]
+    elif "user_system_prompt" in data:
+        result["user_system_prompt"] = data["user_system_prompt"]
+    # Pass through env_info and max_turns for per-prompt environment config
+    if "env_info" in data:
+        result["env_info"] = data["env_info"]
+        # Also extract max_turns at top level for easy access
+        if "max_turns" in data["env_info"]:
+            result["max_turns"] = data["env_info"]["max_turns"]
+    elif "max_turns" in data:
+        result["max_turns"] = data["max_turns"]
+    return result
 
 
 def prepare_mind_dataset(
@@ -46,14 +66,19 @@ def prepare_mind_dataset(
     # Split into train and validation sets using HF's train_test_split
     split_ds = original_ds.train_test_split(test_size=test_size, seed=seed)
 
-    # Format the examples, removing original columns
+    # Format the examples, removing original columns except those we want to keep
+    # We preserve rubric, user_system_prompt, env_info, max_turns for per-prompt configs
+    cols_to_preserve = ["rubric", "user_system_prompt", "env_info", "max_turns", "patient_messages"]
+    train_cols_to_remove = [c for c in split_ds["train"].column_names if c not in cols_to_preserve]
+    val_cols_to_remove = [c for c in split_ds["test"].column_names if c not in cols_to_preserve]
+
     train_formatted = split_ds["train"].map(
         format,
-        remove_columns=split_ds["train"].column_names,
+        remove_columns=train_cols_to_remove,
     )
     val_formatted = split_ds["test"].map(
         format,
-        remove_columns=split_ds["test"].column_names,
+        remove_columns=val_cols_to_remove,
     )
 
     return {

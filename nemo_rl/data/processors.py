@@ -34,7 +34,17 @@ def grpo_mind_preprocessor(
     idx: int,
 ) -> DatumSpec:
 
-    prompt = datum_dict["prompt"]
+    # Support both "prompt" (older datasets) and "context" (Dawn-Gym format)
+    prompt = datum_dict.get("prompt") or datum_dict.get("context") or datum_dict.get("messages")
+    if prompt is None:
+        raise KeyError(f"Expected 'prompt', 'context', or 'messages' key in datum_dict. Available keys: {list(datum_dict.keys())}")
+
+    # Get tools if present (for Qwen tool calling format)
+    # Support both "tools" (list) and "tools_json" (JSON string to preserve structure)
+    tools = datum_dict.get("tools")
+    if tools is None and "tools_json" in datum_dict:
+        import json
+        tools = json.loads(datum_dict["tools_json"])
 
     def check_and_add_think_token(text: str) -> str:
         """Check if the generation prompt contains a beginning think token, add if missing."""
@@ -50,77 +60,35 @@ def grpo_mind_preprocessor(
         prompt = prompt.replace('user: ', '')
         prompt = [{"role": "user", "content": prompt}]
 
-    # Process conversation, handling generation prompt only for the last user message
-    if isinstance(prompt, list) and len(prompt) > 1:
-        # Handle multi-turn conversation
-        conversation_without_last = prompt[:-1]
-        last_message = prompt[-1]
+    # Determine if we need generation prompt (last message is user)
+    last_msg_is_user = (
+        isinstance(prompt, list) and
+        len(prompt) > 0 and
+        isinstance(prompt[-1], dict) and
+        prompt[-1].get("role") == "user"
+    )
 
-        # Process all messages except the last one normally
-        message_log = get_formatted_message_log(
-            conversation_without_last, tokenizer, task_data_spec, add_generation_prompt=False
-        )
+    # Process the entire conversation with get_formatted_message_log
+    # This handles tools properly and adds generation prompt if needed
+    # When adding generation prompt, don't add EOS token (model will generate from there)
+    message_log = get_formatted_message_log(
+        prompt, tokenizer, task_data_spec,
+        add_generation_prompt=last_msg_is_user,
+        add_eos_token=not last_msg_is_user,  # No EOS when we want model to generate
+        tools=tools
+    )
 
-        # Handle the last message separately
-        if isinstance(last_message, dict) and last_message.get("role") == "user":
-            # This is a user message that needs a generation prompt
-            last_msg_formatted = tokenizer.apply_chat_template(
-                [last_message],
-                tokenize=False,
-                add_generation_prompt=True,
-                add_special_tokens=False,
-            )
-            # Remove premature <|im_end|> if it exists
-            if last_msg_formatted.endswith("<|im_end|>"):
-                last_msg_formatted = last_msg_formatted[:-10]  # Remove "<|im_end|>"
-
-            # Check and add think token if needed
-            last_msg_formatted = check_and_add_think_token(last_msg_formatted)
-
-            last_message_dict = {
-                "role": "user",
-                "content": last_msg_formatted,
-                "token_ids": tokenizer(
-                    last_msg_formatted, return_tensors="pt", add_special_tokens=False
-                )["input_ids"][0]
-            }
-            message_log.append(last_message_dict)
-        else:
-            # Last message is assistant, process normally
-            last_msg_log = get_formatted_message_log(
-                [last_message], tokenizer, task_data_spec, add_generation_prompt=False
-            )
-            message_log.extend(last_msg_log)
-    else:
-        # Single message or empty, process normally but check for think token if generation prompt needed
-        if isinstance(prompt, list) and len(prompt) == 1 and prompt[0].get("role") == "user":
-            # Single user message that needs generation prompt
-            last_msg_formatted = tokenizer.apply_chat_template(
-                prompt,
-                tokenize=False,
-                add_generation_prompt=True,
-                add_special_tokens=False,
-            )
-            # Remove premature <|im_end|> if it exists
-            if last_msg_formatted.endswith("<|im_end|>"):
-                last_msg_formatted = last_msg_formatted[:-10]  # Remove "<|im_end|>"
-
-            # Check and add think token if needed
-            last_msg_formatted = check_and_add_think_token(last_msg_formatted)
-
-            message_dict = {
-                "role": "user",
-                "content": last_msg_formatted,
-                "token_ids": tokenizer(
-                    last_msg_formatted, return_tensors="pt", add_special_tokens=False
-                )["input_ids"][0]
-            }
-            message_log = [message_dict]
-        else:
-            # Process normally without generation prompt
-            message_log = get_formatted_message_log(
-                prompt, tokenizer, task_data_spec, add_generation_prompt=False
-            )
+    # Add think token to the last message if it's a user message with generation prompt
+    if last_msg_is_user and len(message_log) > 0:
+        last_msg = message_log[-1]
+        content = str(last_msg.get("content", ""))
+        if "<think>" not in content:
+            # Add think token
+            new_content = content + "\n<think>\n"
+            last_msg["content"] = new_content
+            last_msg["token_ids"] = tokenizer(
+                new_content, return_tensors="pt", add_special_tokens=False
+            )["input_ids"][0]
 
     length = sum(len(m["token_ids"]) for m in message_log)
 
@@ -137,12 +105,24 @@ def grpo_mind_preprocessor(
 
         loss_multiplier = 0.0
 
-    # Prepare extra_env_info with ground_truth and dataset type if present
+    # Prepare extra_env_info with ground_truth, dataset type, and rubric if present
     extra_env_info = {}
     if "ground_truth" in datum_dict:
         extra_env_info["ground_truth"] = datum_dict["ground_truth"]
     if "dataset" in datum_dict:
         extra_env_info["dataset"] = datum_dict["dataset"]
+    # Support per-prompt custom rubrics for the LLM judge
+    if "rubric" in datum_dict:
+        extra_env_info["rubric"] = datum_dict["rubric"]
+    # Support per-prompt max conversation turns
+    if "max_turns" in datum_dict:
+        extra_env_info["max_turns"] = datum_dict["max_turns"]
+    # Support per-prompt user LLM system prompt (patient persona)
+    if "user_system_prompt" in datum_dict:
+        extra_env_info["user_system_prompt"] = datum_dict["user_system_prompt"]
+    # Support per-prompt env_info (checklist_fns, non_negotiable_items, etc.)
+    if "env_info" in datum_dict:
+        extra_env_info["env_info"] = datum_dict["env_info"]
     if not extra_env_info:
         extra_env_info = None
 
