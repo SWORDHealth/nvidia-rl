@@ -1,0 +1,5 @@
+Read the text below which contains a [MASK] placeholder. Select the option that best completes the text logically and coherently.
+
+{}
+
+Think through each option carefully, then provide your final answer as "Answer: <letter>"

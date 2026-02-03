@@ -17,6 +17,7 @@ from nemo_rl.data.datasets.response_datasets.clevr import CLEVRCoGenTDataset
 from nemo_rl.data.datasets.response_datasets.dapo_math import DAPOMath17KDataset
 from nemo_rl.data.datasets.response_datasets.deepscaler import DeepScalerDataset
 from nemo_rl.data.datasets.response_datasets.geometry3k import Geometry3KDataset
+from nemo_rl.data.datasets.response_datasets.mind_fim_mcq import MindFIMMCQDataset
 from nemo_rl.data.datasets.response_datasets.oai_format_dataset import (
     OpenAIFormatDataset,
 )
@@ -93,6 +94,19 @@ def load_response_dataset(data_config, seed: int = 42):
         base_dataset: Any = Geometry3KDataset(
             split=data_config["split"],
         )
+    elif dataset_name == "MindFIMMCQDataset":
+        if "train_data_path" not in data_config:
+            raise ValueError(
+                "train_data_path is required when dataset_name is MindFIMMCQDataset."
+            )
+        extra_kwargs = get_extra_kwargs(
+            data_config,
+            ["val_data_path", "train_split", "val_split"],
+        )
+        base_dataset = MindFIMMCQDataset(
+            train_data_path=data_config["train_data_path"],
+            **extra_kwargs,
+        )
     # fall back to load from JSON file
     elif dataset_name == "ResponseDataset":
         if "train_data_path" not in data_config:
@@ -133,5 +147,6 @@ __all__ = [
     "OpenMathInstruct2Dataset",
     "RefCOCODataset",
     "ResponseDataset",
+    "MindFIMMCQDataset",
     "SquadDataset",
 ]
